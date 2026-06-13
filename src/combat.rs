@@ -1,26 +1,33 @@
+
 #[derive(Debug, Clone)]
 pub struct Enemy {
     pub name: String,
     pub max_hp: f64,
     pub current_hp: f64,
     pub armor: f64,
-    
+    pub exp_reward: f64,
+    pub gold_reward: u32,
     pub is_frozen: bool,
     pub poison_stacks: u32,
-    pub ignite_turns: u32, 
+    pub ignite_turns: u32,
 }
 
 impl Enemy {
-    pub fn new(name: &str, hp: f64, armor: f64) -> Self {
+pub fn new(name: &str, hp: f64, armor: f64, exp_reward: f64, gold_reward: u32) -> Self {
         Self {
             name: name.to_string(),
             max_hp: hp,
             current_hp: hp,
             armor,
+            exp_reward,
+            gold_reward,
             is_frozen: false,
             poison_stacks: 0,
             ignite_turns: 0,
         }
+    }
+    pub fn is_dead(&self) -> bool {
+        self.current_hp <= 0.0
     }
 
     pub fn take_damage(&mut self, amount: f64) {

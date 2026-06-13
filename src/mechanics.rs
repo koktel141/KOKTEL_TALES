@@ -77,10 +77,22 @@ pub struct Player {
     pub weapon_style: WeaponStyle,
     pub stats: Stats,
     pub talents: PlayerTalentTree,
+    pub gold: u32,
     pub cooldowns: HashMap<String, u32>,
 }
 
 impl Player {
+    pub fn defeat_enemy(&mut self, enemy: &Enemy) {
+        if enemy.is_dead() {
+            println!("\n🏆 {} has been defeated!", enemy.name);
+            println!("💰 Gained +{} Gold.", enemy.gold_reward);
+            self.gold += enemy.gold_reward;
+            
+            
+            self.gain_exp(enemy.exp_reward);
+        }
+    }
+    
     pub fn use_ability(&mut self, ability_name: &str, enemy: &mut Enemy) {
 
     let available = self.get_available_abilities();
@@ -399,6 +411,7 @@ pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
             weapon_style: WeaponStyle::TwoHanded,
             stats,
             talents,
+            gold: 0,
             cooldowns: HashMap::new(),
         }
         
@@ -460,52 +473,37 @@ pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
         100.0 * 1.4_f64.powi((self.level - 1) as i32)
     }
 
-    pub fn gain_exp(&mut self, amount: f64) {
+pub fn gain_exp(&mut self, amount: f64) {
+        println!("✨ Gained +{:.0} EXP.", amount);
         self.exp += amount;
-        loop {
-            let needed = self.exp_to_next_level();
-            if self.exp < needed { break; }
-            self.exp -= needed;
+
+        let required = self.exp_to_next_level();
+        if self.exp >= required {
+            self.exp -= required;
             self.level_up();
-            println!(
-                "🌟 Level Up! {} is now level {}! (+1 Talent Point)",
-                self.name, self.level
-            );
         }
     }
-
-    fn level_up(&mut self) {
+fn level_up(&mut self) {
         self.level += 1;
-        self.talent_points += 1;
+        self.talent_points += 1; 
+        
+        
+        self.stats.strength += 2.0;
+        self.stats.agility += 2.0;
+        self.stats.intelligence += 3.0;
+        
+        
+        self.stats.max_hp += 25.0;
+        self.stats.max_mana += 15.0;
+        self.stats.current_hp = self.stats.max_hp;
+        self.stats.current_mana = self.stats.max_mana;
 
-        // Class-based stat growth per level
-        match self.class {
-            PlayerClass::Warrior => {
-                self.stats.max_hp     += 18.0;
-                self.stats.current_hp += 18.0;
-                self.stats.max_mana   += 4.0;
-                self.stats.strength   += 7.0;
-                self.stats.agility    += 3.0;
-                self.stats.intelligence += 1.0;
-            }
-            PlayerClass::Rogue => {
-                self.stats.max_hp     += 12.0;
-                self.stats.current_hp += 12.0;
-                self.stats.max_mana   += 6.0;
-                self.stats.strength   += 3.0;
-                self.stats.agility    += 8.0;
-                self.stats.intelligence += 2.0;
-            }
-            PlayerClass::Mage => {
-                self.stats.max_hp     += 8.0;
-                self.stats.current_hp += 8.0;
-                self.stats.max_mana   += 15.0;
-                self.stats.strength   += 1.0;
-                self.stats.agility    += 2.0;
-                self.stats.intelligence += 8.0;
-            }
-        }
+        println!("\n🎉🎉🎉 LEVEL UP! You are now Level {}! 🎉🎉🎉", self.level);
+        println!("⭐ +1 Talent Point Available! (Total: {})", self.talent_points);
+        println!("❤️ HP and Mana fully restored and increased!");
     }
+
+
 
     /// Call at the end of each combat turn.
     pub fn regen_per_turn(&mut self) {
