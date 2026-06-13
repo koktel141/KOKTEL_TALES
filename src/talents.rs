@@ -37,11 +37,12 @@ pub struct WarriorTalents {
 #[derive(Debug, Clone)]
 pub struct RogueTalents {
     // Assassin Branch
-    pub quickblade_lvl: u32,
+    pub flurry_blades_lvl: u32,
     pub armor_breach_lvl: u32,
     pub resistance_shred_lvl: u32,
     pub shadow_step_unlocked: bool,
     pub thousand_cuts_unlocked: bool,
+    
 
     // Duelist Branch
     pub parry_lvl: u32,
@@ -127,7 +128,7 @@ impl WarriorTalents {
 impl RogueTalents {
     pub fn new() -> Self {
         Self {
-            quickblade_lvl: 0, armor_breach_lvl: 0, resistance_shred_lvl: 0, shadow_step_unlocked: false, thousand_cuts_unlocked: false,
+            flurry_blades_lvl: 0, armor_breach_lvl: 0, resistance_shred_lvl: 0, shadow_step_unlocked: false, thousand_cuts_unlocked: false,
             parry_lvl: 0, counter_attack_lvl: 0, evasion_arts_lvl: 0, blade_dance_lvl: 0, perfect_defense_unlocked: false,
         }
     }

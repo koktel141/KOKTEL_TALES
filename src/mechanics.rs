@@ -1,6 +1,7 @@
 use crate::talents::PlayerTalentTree;
 use crate::combat::Enemy;
 use std::collections::HashMap;
+use rand::Rng;
 
 #[derive(Debug, Clone)]
 pub enum StatModifier {
@@ -82,6 +83,29 @@ pub struct Player {
 }
 
 impl Player {
+    pub fn update_derived_stats(&mut self) {
+        
+        self.stats.max_hp = 80.0 + (self.stats.strength * 10.0);
+        self.stats.hp_regen = 1.0 + (self.stats.strength * 0.15);
+        
+        self.stats.max_mana = 50.0 + (self.stats.intelligence * 12.0);
+        self.stats.mana_regen = 1.0 + (self.stats.intelligence * 0.1);
+        
+        
+        self.stats.armor = 0.0 + (self.stats.agility * 0.16);
+        if self.stats.current_hp > self.stats.max_hp { self.stats.current_hp = self.stats.max_hp; }
+    }
+    pub fn calculate_hit_damage(&self, base_dmg: f64) -> (f64, bool) {
+        let mut rng = rand::thread_rng();
+        let is_crit = rng.gen_bool(self.stats.crit_chance.min(1.0));
+        let damage = if is_crit {
+            base_dmg * self.stats.crit_multiplier
+        } else {
+            base_dmg
+        };
+        
+        (damage, is_crit)
+    }
     pub fn defeat_enemy(&mut self, enemy: &Enemy) {
         if enemy.is_dead() {
             println!("\n🏆 {} has been defeated!", enemy.name);
@@ -94,13 +118,13 @@ impl Player {
     }
     
     pub fn use_ability(&mut self, ability_name: &str, enemy: &mut Enemy) {
+    
 
     let available = self.get_available_abilities();
     if !available.contains(&ability_name.to_string()) {
         println!("❌ {} cannot use '{}'. Ability locked or wrong class!", self.name, ability_name);
         return;
     }
-
     
     if let Some(&remaining_turns) = self.cooldowns.get(ability_name) {
         if remaining_turns > 0 {
@@ -111,11 +135,37 @@ impl Player {
     
     match ability_name {
         "basic_attack" => {
-            let dmg = self.base_damage();
-            println!("⚔️ {} uses Basic Attack!", self.name);
-            enemy.take_damage(dmg);
+            let mut rng = rand::thread_rng();
+
+            if let PlayerTalentTree::Rogue(ref rogue) = self.talents {
+                if rogue.flurry_blades_lvl > 0 {
+                let hits = rng.gen_range(3..=5);
+                println!("🌪️ FLURRY OF BLADES! {} strikes {} times!", self.name, hits);
             
+                for _ in 0..hits {
+                    let (dmg, is_crit) = self.calculate_hit_damage(self.base_damage() * 0.6);
+                    if is_crit { println!("💥 CRITICAL HIT!"); }
+                    enemy.take_damage(dmg);
+            }
+            return; 
         }
+    }
+
+    
+    let (dmg, is_crit) = self.calculate_hit_damage(self.base_damage());
+    if is_crit { println!("💥 CRITICAL HIT!"); }
+    println!("⚔️ {} uses Basic Attack!", self.name);
+    enemy.take_damage(dmg);
+
+    
+    let extra_chance = (self.stats.agility * 1.5) as u32;
+    if rng.gen_range(1..=100) <= extra_chance {
+        println!("⚡ Quick strike! Extra attack!");
+        let (dmg_extra, is_crit_extra) = self.calculate_hit_damage(self.base_damage() * 0.5);
+        if is_crit_extra { println!("💥 CRITICAL HIT!"); }
+        enemy.take_damage(dmg_extra);
+    }
+}
         "frostbolt" => {
             let mana_cost = 20.0;
             if self.stats.current_mana < mana_cost {
@@ -165,7 +215,7 @@ impl Player {
         _ => println!("❌ Ability logic not implemented yet!"),
     }
     }
-pub fn tick_cooldowns(&mut self) {
+    pub fn tick_cooldowns(&mut self) {
         for (ability, turns) in self.cooldowns.iter_mut() {
             if *turns > 0 {
                 *turns -= 1;
@@ -443,6 +493,7 @@ pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
             StatModifier::AddManaRegen(v)    => self.stats.mana_regen += *v,
             StatModifier::NoEffect           => {}
         }
+        self.update_derived_stats(); // update derived stats after applying a new modifier
     }
 
     /// Switch weapon style. Resets and reapplies block stats accordingly.
@@ -462,18 +513,23 @@ pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
 
     /// Raw damage output before enemy armor reduction.
     pub fn base_damage(&self) -> f64 {
-        let str_dmg = self.stats.strength * 2.0;
-        match self.weapon_style {
-            WeaponStyle::TwoHanded       => str_dmg * 1.20, // +20% damage
-            WeaponStyle::OneHandedShield => str_dmg * 0.75, // -25% damage
-        }
+        let class_scaling_bonus = match self.class {
+            PlayerClass::Warrior => self.stats.strength,      
+            PlayerClass::Rogue => self.stats.agility,         
+            PlayerClass::Mage => self.stats.intelligence,     
+        };
+
+        
+        let base = 10.0 + class_scaling_bonus;
+        base
     }
+    
 
     pub fn exp_to_next_level(&self) -> f64 {
         100.0 * 1.4_f64.powi((self.level - 1) as i32)
     }
 
-pub fn gain_exp(&mut self, amount: f64) {
+    pub fn gain_exp(&mut self, amount: f64) {
         println!("✨ Gained +{:.0} EXP.", amount);
         self.exp += amount;
 
@@ -483,21 +539,33 @@ pub fn gain_exp(&mut self, amount: f64) {
             self.level_up();
         }
     }
-fn level_up(&mut self) {
-        self.level += 1;
-        self.talent_points += 1; 
-        
-        
-        self.stats.strength += 2.0;
-        self.stats.agility += 2.0;
-        self.stats.intelligence += 3.0;
-        
-        
-        self.stats.max_hp += 25.0;
-        self.stats.max_mana += 15.0;
-        self.stats.current_hp = self.stats.max_hp;
-        self.stats.current_mana = self.stats.max_mana;
+    pub fn level_up(&mut self) {
+self.level += 1;
+    self.talent_points += 1;
 
+    // اعمال سیستم لول‌آپ جدید (۳ پوینت برای استت اصلی، ۱ پوینت برای بقیه)
+    match self.class {
+        PlayerClass::Warrior => {
+            self.stats.strength += 3.0;
+            self.stats.agility += 1.0;
+            self.stats.intelligence += 1.0;
+        },
+        PlayerClass::Rogue => {
+            self.stats.strength += 1.0;
+            self.stats.agility += 3.0;
+            self.stats.intelligence += 1.0;
+        },
+        PlayerClass::Mage => {
+            self.stats.strength += 1.0;
+            self.stats.agility += 1.0;
+            self.stats.intelligence += 3.0;
+        },
+    }
+
+    self.update_derived_stats();
+    
+    self.stats.current_hp = self.stats.max_hp;
+    self.stats.current_mana = self.stats.max_mana;
         println!("\n🎉🎉🎉 LEVEL UP! You are now Level {}! 🎉🎉🎉", self.level);
         println!("⭐ +1 Talent Point Available! (Total: {})", self.talent_points);
         println!("❤️ HP and Mana fully restored and increased!");
