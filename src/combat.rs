@@ -10,9 +10,16 @@ pub struct Enemy {
     pub is_frozen: bool,
     pub poison_stacks: u32,
     pub ignite_turns: u32,
+    pub hp_regen: f64,
 }
 
 impl Enemy {
+    pub fn regenerate(&mut self) {
+        // Regenerate HP
+        if self.current_hp > 0.0 {
+            self.current_hp = (self.current_hp + self.hp_regen).min(self.max_hp); 
+        }
+    }
 pub fn new(name: &str, hp: f64, armor: f64, exp_reward: f64, gold_reward: u32) -> Self {
         Self {
             name: name.to_string(),
@@ -24,6 +31,7 @@ pub fn new(name: &str, hp: f64, armor: f64, exp_reward: f64, gold_reward: u32) -
             is_frozen: false,
             poison_stacks: 0,
             ignite_turns: 0,
+            hp_regen: 8.0,
         }
     }
     pub fn is_dead(&self) -> bool {

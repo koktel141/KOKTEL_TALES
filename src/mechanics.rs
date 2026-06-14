@@ -116,7 +116,7 @@ pub fn mana_cost(ability: &str) -> f64 {
         // ── Ice 
         "frostbolt"       => 20.0,
         "deep_freeze"     => 25.0,
-        "ice_lance"       => 15.0,
+        "ice_lance"       => 40.0,
         "blizzard"        => 70.0,
 
         // ── Fire 
@@ -139,6 +139,132 @@ pub fn mana_cost(ability: &str) -> f64 {
     }
 }
 impl Player {
+    pub fn apply_warrior_passives(&mut self) {
+        if let PlayerTalentTree::Warrior(ref w) = self.talents {
+            
+            if self.spec == PlayerSpec::WarriorTank {
+                self.stats.armor += (w.iron_fortress_lvl * 10) as f64;
+                self.stats.max_hp += (w.ironwill_lvl * 50) as f64;
+                self.stats.current_hp = self.stats.max_hp; 
+            } 
+            
+            else if self.spec == PlayerSpec::WarriorDPS {
+                
+                self.stats.crit_chance += (w.berserker_crit_lvl as f64 * 0.05);
+                if w.true_strike_unlocked {
+                    self.stats.strength += 20.0;
+                }
+            }
+        }
+    }
+    // pub fn get_available_abilities(&self) -> Vec<String> {
+    //     let mut abilities = vec!["basic_attack".to_string()];
+
+    //     match &self.talents {
+    //         PlayerTalentTree::Mage( mage) => {
+    //             if let Some(ref dps_tree) = mage.dps_tree {
+    //                 match dps_tree {
+    //                     crate::talents::ElementalDpsTree::Ice(ice) => {
+    //                         if ice.frostbolt > 0 { abilities.push("frostbolt".to_string()); }
+    //                         if ice.deep_freeze > 0 { abilities.push("deep_freeze".to_string()); }
+    //                         if ice.ice_lance > 0 { abilities.push("ice_lance".to_string()); }
+    //                         if ice.blizzard > 0 { abilities.push("blizzard".to_string()); }
+    //                     }
+    //                     crate::talents::ElementalDpsTree::Void(void) => {
+    //                         if void.void_bolt > 0 { abilities.push("void_bolt".to_string()); }
+    //                         if void.void_drain > 0 { abilities.push("void_drain".to_string()); }
+    //                     }
+    //                     crate::talents::ElementalDpsTree::Fire(fire) => {
+    //                         if fire.fireball > 0 { abilities.push("fireball".to_string()); }
+    //                         if fire.ignite > 0 { abilities.push("ignite".to_string()); }
+    //                         if fire.firestorm > 0 { abilities.push("firestorm".to_string()); }
+    //                     }
+    //                     crate::talents::ElementalDpsTree::Poison(p) => {
+    //                         if p.venom_strike > 0 { abilities.push("venom_strike".to_string()); }
+    //                         if p.toxic_cloud > 0 { abilities.push("toxic_cloud".to_string()); }
+    //                         if p.lethal_dose > 0 { abilities.push("lethal_dose".to_string()); }
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //         PlayerTalentTree::Warrior(w) => {
+                
+    //             if w.taunt_unlocked { abilities.push("taunt".to_string()); }
+    //             if w.war_fury_lvl > 0 { abilities.push("war_fury".to_string()); }
+    //             if w.executioner_lvl > 0 { abilities.push("executioner".to_string()); }
+    //         }
+    //         PlayerTalentTree::Rogue(r) => {
+    //             if r.shadow_step_unlocked { abilities.push("shadow_step".to_string()); }
+                
+    //             if r.parry_lvl > 0 { abilities.push("parry".to_string()); } 
+    //             if r.flurry_blades_lvl > 0 { abilities.push("counter_attack".to_string()); }
+    //         }
+    //     }
+    //     abilities
+    // }
+pub fn get_available_abilities(&self) -> Vec<String> {
+    let mut abilities = vec!["basic_attack".to_string()];
+
+    match &self.talents {
+        PlayerTalentTree::Mage(mage) => {
+            if let Some(ref dps_tree) = mage.dps_tree {
+                match dps_tree {
+                    crate::talents::ElementalDpsTree::Ice(ice) => {
+                        if ice.frostbolt > 0 { abilities.push("frostbolt".to_string()); }
+                        if ice.ice_lance > 0 { abilities.push("ice_lance".to_string()); }
+                        if ice.deep_freeze > 0 { abilities.push("deep_freeze".to_string()); }
+                    }
+                    crate::talents::ElementalDpsTree::Void(v) => {
+                        if v.void_bolt > 0 { abilities.push("void_bolt".to_string()); }
+                        if v.void_drain > 0 { abilities.push("void_drain".to_string()); }
+                    }
+                    crate::talents::ElementalDpsTree::Fire(f) => {
+                        if f.fireball > 0 { abilities.push("fireball".to_string()); }
+                        if f.ignite > 0 { abilities.push("ignite".to_string()); }
+                        if f.firestorm > 0 { abilities.push("firestorm".to_string()); }
+                    }
+                    crate::talents::ElementalDpsTree::Poison(p) => {
+                        if p.venom_strike > 0 { abilities.push("venom_strike".to_string()); }
+                        if p.toxic_cloud > 0 { abilities.push("toxic_cloud".to_string()); }
+                        if p.lethal_dose > 0 { abilities.push("lethal_dose".to_string()); }
+                    }
+                }
+            }
+        }
+        PlayerTalentTree::Warrior( w) => {
+            
+            if self.spec == PlayerSpec::WarriorTank {
+                if w.taunt_unlocked { abilities.push("taunt".to_string()); }
+            } 
+            
+            else {
+                if w.war_fury_lvl > 0 { abilities.push("war_fury".to_string()); }
+                if w.executioner_lvl > 0 { abilities.push("executioner".to_string()); }
+            }
+        }
+        PlayerTalentTree::Rogue(r) => {
+            // Assassin: 
+            if self.spec == PlayerSpec::RogueAssassin {
+                if r.shadow_step_unlocked { abilities.push("shadow_step".to_string()); }
+                if r.flurry_blades_lvl > 0 { abilities.push("counter_attack".to_string()); }
+            } 
+            // Duelist:(Parry)
+            else if self.spec == PlayerSpec::RogueDuelist {
+                if r.parry_lvl > 0 {
+                    abilities.push("parry".to_string());
+                abilities.push("counter_attack".to_string());
+            }
+            }
+        }
+    }
+    abilities
+}
+    pub fn regenerate(&mut self) {
+        if self.stats.current_hp > 0.0 {
+            self.stats.current_hp = (self.stats.current_hp + self.stats.hp_regen).min(self.stats.max_hp);
+        }
+        self.stats.current_mana = (self.stats.current_mana + self.stats.mana_regen).min(self.stats.max_mana);
+    }
     pub fn update_derived_stats(&mut self) {
         let armor_scale = match self.spec {
         PlayerSpec::WarriorTank   => 0.65,
@@ -220,79 +346,217 @@ impl Player {
             cost, self.stats.current_mana, self.stats.max_mana);
     }
 
-    match ability_name {
+match ability_name {
+        // ---------------------------------------------------------
+        // ⚔️ MELEE & GENERAL
+        // ---------------------------------------------------------
         "basic_attack" => {
             let mut rng = rand::thread_rng();
-
             if let PlayerTalentTree::Rogue(ref rogue) = self.talents {
                 if rogue.flurry_blades_lvl > 0 {
-                let hits = rng.gen_range(3..=5);
-                println!("🌪️ FLURRY OF BLADES! {} strikes {} times!", self.name, hits);
-            
-                for _ in 0..hits {
-                    let (dmg, is_crit) = self.calculate_hit_damage(self.base_damage() * 0.6);
-                    if is_crit { println!("💥 CRITICAL HIT!"); }
-                    enemy.take_damage(dmg);
+                    let hits = rng.gen_range(3..=5);
+                    println!("🌪️ FLURRY OF BLADES! {} strikes {} times!", self.name, hits);
+                    for _ in 0..hits {
+                        let (dmg, is_crit) = self.calculate_hit_damage(self.base_damage() * 0.6);
+                        if is_crit { println!("💥 CRITICAL HIT!"); }
+                        enemy.take_damage(dmg);
+                    }
+                    return; 
+                }
             }
-            return; 
-        }
-    }
-
-    
-    let (dmg, is_crit) = self.calculate_hit_damage(self.base_damage());
-    if is_crit { println!("💥 CRITICAL HIT!"); }
-    println!("⚔️ {} uses Basic Attack!", self.name);
-    enemy.take_damage(dmg);
-
-    
-    let extra_chance = (self.stats.agility * 1.5) as u32;
-    if rng.gen_range(1..=100) <= extra_chance {
-        println!("⚡ Quick strike! Extra attack!");
-        let (dmg_extra, is_crit_extra) = self.calculate_hit_damage(self.base_damage() * 0.5);
-        if is_crit_extra { println!("💥 CRITICAL HIT!"); }
-        enemy.take_damage(dmg_extra);
-    }
-    },
-        "frostbolt" => {
+            let (dmg, is_crit) = self.calculate_hit_damage(self.base_damage());
+            if is_crit { println!("💥 CRITICAL HIT!"); }
+            println!("⚔️ {} uses Basic Attack!", self.name);
+            enemy.take_damage(dmg);
             
+            let extra_chance = (self.stats.agility * 1.5) as u32;
+            if rng.gen_range(1..=100) <= extra_chance {
+                println!("⚡ Quick strike! Extra attack!");
+                let (dmg_extra, is_crit_extra) = self.calculate_hit_damage(self.base_damage() * 0.5);
+                if is_crit_extra { println!("💥 CRITICAL HIT!"); }
+                enemy.take_damage(dmg_extra);
+            }
+        },
+
+        // ---------------------------------------------------------
+        // 🛡️ WARRIOR ABILITIES
+        // ---------------------------------------------------------
+        "taunt" => {
+            println!("🗣️ {} roars and Taunts the enemy! Armor increased permanently by 15.", self.name);
+            self.stats.armor += 30.0; 
+            self.cooldowns.insert("taunt".to_string(), 4);
+        },
+        "war_fury" => {
+            println!("💢 {} unleashes War Fury! Striking with 150% power!", self.name);
+            let (dmg, is_crit) = self.calculate_hit_damage(self.base_damage() * 1.5);
+            if is_crit { println!("💥 CRITICAL HIT!"); }
+            enemy.take_damage(dmg);
+            self.cooldowns.insert("war_fury".to_string(), 3);
+        },
+        "executioner" => {
+            println!("🪓 {} attempts an Execution!", self.name);
+            
+            if enemy.current_hp < (enemy.max_hp * 0.3) {
+                println!("🩸 FATAL STRIKE! Enemy was weak!");
+                enemy.take_damage(self.base_damage() * 3.0);
+            } else {
+                println!("⚠️ Enemy is too healthy. Execution deals normal damage.");
+                enemy.take_damage(self.base_damage());
+            }
+            self.cooldowns.insert("executioner".to_string(), 2);
+        },
+
+        // ---------------------------------------------------------
+        // 🗡️ ROGUE ABILITIES
+        // ---------------------------------------------------------
+        "shadow_step" => {
+            println!("🌫️ {} uses Shadow Step! Bypassing enemy armor completely!", self.name);
+            let damage = self.base_damage() * 1.8;
+            
+            enemy.current_hp = (enemy.current_hp - damage).max(0.0);
+            println!("💥 {} took {:.1} DIRECT TRUE DAMAGE. HP: {:.0}/{:.0}", enemy.name, damage, enemy.current_hp, enemy.max_hp);
+            self.cooldowns.insert("shadow_step".to_string(), 4);
+        },
+        "counter_attack" => {
+            println!("🤺 {} enters a Counter-Attack stance and strikes rapidly!", self.name);
+            enemy.take_damage(self.base_damage() * 1.2);
+            self.cooldowns.insert("counter_attack".to_string(), 2);
+        },
+
+        // ---------------------------------------------------------
+        // 💖 MAGE: HEALER
+        // ---------------------------------------------------------
+        "holy_heal" => {
+            let heal_amount = self.stats.intelligence * 4.0;
+            self.stats.current_hp = (self.stats.current_hp + heal_amount).min(self.stats.max_hp);
+            println!("✨ {} casts Holy Heal! Recovered {:.0} HP ({} / {}).", self.name, heal_amount, self.stats.current_hp, self.stats.max_hp);
+            self.cooldowns.insert("holy_heal".to_string(), 3);
+        },
+
+        // ---------------------------------------------------------
+        // ❄️ MAGE: ICE
+        // ---------------------------------------------------------
+        "frostbolt" => {
             let spell_power = self.stats.intelligence * 2.5;
-            let damage = {
-                if let PlayerTalentTree::Mage(ref mage) = self.talents {
-                    if let Some(crate::talents::ElementalDpsTree::Ice(ref ice)) = mage.dps_tree {
-                        spell_power * (1.0 + (ice.frostbolt as f64 * 0.15))
-                    } else { 0.0 }
+            let damage = if let PlayerTalentTree::Mage(ref mage) = self.talents {
+                if let Some(crate::talents::ElementalDpsTree::Ice(ref ice)) = mage.dps_tree {
+                    spell_power * (1.0 + (ice.frostbolt as f64 * 0.15))
                 } else { 0.0 }
-            };
+            } else { 0.0 };
+
             if damage > 0.0 {
                 println!("❄️ {} casts Frostbolt!", self.name);
                 enemy.take_damage(damage);
                 enemy.is_frozen = true;
                 println!("🥶 {} is Frozen!", enemy.name);
             }
-            
-            self.cooldowns.insert("frostbolt".to_string(), 1);
-        }
-
+            self.cooldowns.insert("frostbolt".to_string(), 3);
+        },
         "ice_lance" => {
-            let damage = {
-                if let PlayerTalentTree::Mage(ref mage) = self.talents {
-                    if let Some(crate::talents::ElementalDpsTree::Ice(ref ice)) = mage.dps_tree {
-                        let base = self.stats.intelligence * 2.5
-                            * (1.2 + (ice.ice_lance as f64 * 0.20));
-                        if enemy.is_frozen {
-                            println!("🧊 Shatter Combo! Double damage!");
-                            base * 2.0
-                        } else { base }
-                    } else { 0.0 }
+            let damage = if let PlayerTalentTree::Mage(ref mage) = self.talents {
+                if let Some(crate::talents::ElementalDpsTree::Ice(ref ice)) = mage.dps_tree {
+                    let base = self.stats.intelligence * 2.5 * (1.2 + (ice.ice_lance as f64 * 0.20));
+                    if enemy.is_frozen {
+                        println!("🧊 Shatter Combo! Double damage!");
+                        base * 2.0
+                    } else { base }
                 } else { 0.0 }
-            };
+            } else { 0.0 };
+
             if damage > 0.0 {
                 println!("❄️ {} launches Ice Lance!", self.name);
                 enemy.take_damage(damage);
-                enemy.is_frozen = false;
+                enemy.is_frozen = false; 
             }
             self.cooldowns.insert("ice_lance".to_string(), 1);
-        }
+        },
+        "deep_freeze" => {
+            println!("🧊 {} casts Deep Freeze!", self.name);
+            let spell_power = self.stats.intelligence * 2.0;
+            enemy.take_damage(spell_power);
+            enemy.is_frozen = true;
+            self.cooldowns.insert("deep_freeze".to_string(), 5);
+        },
+
+        // ---------------------------------------------------------
+        // 🔥 MAGE: FIRE
+        // ---------------------------------------------------------
+        "fireball" => {
+            let spell_power = self.stats.intelligence * 3.5; 
+            println!("🔥 {} unleashes a massive Fireball!", self.name);
+            enemy.take_damage(spell_power);
+            enemy.ignite_turns = 3; 
+            println!("🔥 {} caught on fire! (Ignited for 3 turns)", enemy.name);
+            self.cooldowns.insert("fireball".to_string(), 2);
+        },
+        "ignite" => {
+            let spell_power = self.stats.intelligence * 1.5;
+            println!("💥 {} forces the flames to Ignite instantly!", self.name);
+            if enemy.ignite_turns > 0 {
+                println!("🌋 CONFLAGRATION! Consuming burn for massive burst!");
+                enemy.take_damage(spell_power * 3.0);
+                enemy.ignite_turns = 0; 
+            } else {
+                enemy.take_damage(spell_power);
+            }
+            self.cooldowns.insert("ignite".to_string(), 4);
+        },
+                "firestorm" => {
+            println!("☄️ {} calls down a Firestorm!", self.name);
+            enemy.take_damage(self.stats.intelligence * 10.0);
+            enemy.ignite_turns += 2; 
+            self.cooldowns.insert("firestorm".to_string(), 5);
+        },
+
+        // ---------------------------------------------------------
+        // 🔮 MAGE: VOID
+        // ---------------------------------------------------------
+        "void_bolt" => {
+            let spell_power = self.stats.intelligence * 2.5;
+            println!("🔮 {} fires a Void Bolt!", self.name);
+            enemy.take_damage(spell_power);
+            
+            
+            self.stats.current_mana = (self.stats.current_mana + 15.0).min(self.stats.max_mana);
+            println!("💧 Void energy restored +15 Mana!");
+            self.cooldowns.insert("void_bolt".to_string(), 0); 
+        },
+        "void_drain" => {
+            let spell_power = self.stats.intelligence * 2.0;
+            println!("🌌 {} channels Void Drain!", self.name);
+            enemy.take_damage(spell_power);
+            
+            
+            let heal_amount = spell_power * 0.5;
+            self.stats.current_hp = (self.stats.current_hp + heal_amount).min(self.stats.max_hp);
+            println!("🧛 Drained {:.0} HP from the enemy!", heal_amount);
+            self.cooldowns.insert("void_drain".to_string(), 3);
+        },
+
+        // ---------------------------------------------------------
+        // 🧪 MAGE: POISON
+        // ---------------------------------------------------------
+        "venom_strike" => {
+            let spell_power = self.stats.intelligence * 1.5;
+            println!("🐍 {} casts Venom Strike!", self.name);
+            enemy.take_damage(spell_power);
+            enemy.poison_stacks += 1;
+            println!("🤢 {} receives 1 Poison Stack! (Total: {})", enemy.name, enemy.poison_stacks);
+            self.cooldowns.insert("venom_strike".to_string(), 1);
+        },
+        "toxic_cloud" => {
+            let spell_power = self.stats.intelligence * 1.0;
+            println!("☁️ {} releases a Toxic Cloud!", self.name);
+            enemy.take_damage(spell_power);
+            enemy.poison_stacks += 3;
+            println!("🤢 {} choked on the gas! Gains 3 Poison Stacks! (Total: {})", enemy.name, enemy.poison_stacks);
+            self.cooldowns.insert("toxic_cloud".to_string(), 4);
+        },
+        "parry" => {
+            println!("🛡️ {} enters Parry stance!", self.name);
+            self.stats.armor += 50.0;
+            self.cooldowns.insert("parry".to_string(), 3);
+        },
 
         _ => println!("❌ Ability '{}' not implemented yet!", ability_name),
     }
@@ -307,68 +571,68 @@ impl Player {
             }
         }
     }
-    pub fn get_available_abilities(&self) -> Vec<String> {
-        let mut abilities = Vec::new();
+    // pub fn get_available_abilities(&self) -> Vec<String> {
+    //     let mut abilities = Vec::new();
 
         
-        abilities.push("basic_attack".to_string());
+    //     abilities.push("basic_attack".to_string());
 
         
-        match &self.talents {
-            PlayerTalentTree::Warrior(warrior) => {
+    //     match &self.talents {
+    //         PlayerTalentTree::Warrior(warrior) => {
                 
-                if warrior.taunt_unlocked {
-                    abilities.push("taunt".to_string());
-                }
+    //             if warrior.taunt_unlocked {
+    //                 abilities.push("taunt".to_string());
+    //             }
                 
-                if warrior.war_fury_lvl > 0 {
-                    abilities.push("war_fury".to_string());
-                }
-                if warrior.executioner_lvl > 0 {
-                    abilities.push("executioner".to_string());
-                }
-            }
-            PlayerTalentTree::Rogue(rogue) => {
-                if rogue.shadow_step_unlocked {
-                    abilities.push("shadow_step".to_string());
-                }
-                if rogue.counter_attack_lvl > 0 {
-                    abilities.push("counter_attack".to_string());
-                }
-            }
-            PlayerTalentTree::Mage(mage) => {
+    //             if warrior.war_fury_lvl > 0 {
+    //                 abilities.push("war_fury".to_string());
+    //             }
+    //             if warrior.executioner_lvl > 0 {
+    //                 abilities.push("executioner".to_string());
+    //             }
+    //         }
+    //         PlayerTalentTree::Rogue(rogue) => {
+    //             if rogue.shadow_step_unlocked {
+    //                 abilities.push("shadow_step".to_string());
+    //             }
+    //             if rogue.counter_attack_lvl > 0 {
+    //                 abilities.push("counter_attack".to_string());
+    //             }
+    //         }
+    //         PlayerTalentTree::Mage(mage) => {
                 
-                if mage.holy_heal > 0 {
-                    abilities.push("holy_heal".to_string());
-                }
+    //             if mage.holy_heal > 0 {
+    //                 abilities.push("holy_heal".to_string());
+    //             }
                 
                 
-                if let Some(ref dps_tree) = mage.dps_tree {
-                    match dps_tree {
-                        crate::talents::ElementalDpsTree::Ice(ice) => {
-                            if ice.frostbolt > 0 { abilities.push("frostbolt".to_string()); }
-                            if ice.deep_freeze > 0 { abilities.push("deep_freeze".to_string()); }
-                            if ice.ice_lance > 0 { abilities.push("ice_lance".to_string()); }
-                        }
-                        crate::talents::ElementalDpsTree::Fire(fire) => {
-                            if fire.fireball > 0 { abilities.push("fireball".to_string()); }
-                            if fire.ignite > 0 { abilities.push("ignite".to_string()); }
-                        }
-                        crate::talents::ElementalDpsTree::Void(void) => {
-                            if void.void_bolt > 0 { abilities.push("void_bolt".to_string()); }
-                            if void.void_drain > 0 { abilities.push("void_drain".to_string()); }
-                        }
-                        crate::talents::ElementalDpsTree::Poison(poison) => {
-                            if poison.venom_strike > 0 { abilities.push("venom_strike".to_string()); }
-                            if poison.toxic_cloud > 0 { abilities.push("toxic_cloud".to_string()); }
-                        }
-                    }
-                }
-            }
-        }
+    //             if let Some(ref dps_tree) = mage.dps_tree {
+    //                 match dps_tree {
+    //                     crate::talents::ElementalDpsTree::Ice(ice) => {
+    //                         if ice.frostbolt > 0 { abilities.push("frostbolt".to_string()); }
+    //                         if ice.deep_freeze > 0 { abilities.push("deep_freeze".to_string()); }
+    //                         if ice.ice_lance > 0 { abilities.push("ice_lance".to_string()); }
+    //                     }
+    //                     crate::talents::ElementalDpsTree::Fire(fire) => {
+    //                         if fire.fireball > 0 { abilities.push("fireball".to_string()); }
+    //                         if fire.ignite > 0 { abilities.push("ignite".to_string()); }
+    //                     }
+    //                     crate::talents::ElementalDpsTree::Void(void) => {
+    //                         if void.void_bolt > 0 { abilities.push("void_bolt".to_string()); }
+    //                         if void.void_drain > 0 { abilities.push("void_drain".to_string()); }
+    //                     }
+    //                     crate::talents::ElementalDpsTree::Poison(poison) => {
+    //                         if poison.venom_strike > 0 { abilities.push("venom_strike".to_string()); }
+    //                         if poison.toxic_cloud > 0 { abilities.push("toxic_cloud".to_string()); }
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        abilities
-    }
+    //     abilities
+    // }
 
 pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
         

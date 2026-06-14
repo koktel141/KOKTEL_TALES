@@ -2,121 +2,265 @@ mod mechanics;
 mod talents;
 mod combat;
 
-use mechanics::{Player, PlayerClass, PlayerSpec, mana_cost};
+use mechanics::{Player, PlayerClass, PlayerSpec};
 use combat::Enemy;
 use talents::PlayerTalentTree;
 
-fn main() {
-    println!("╔══════════════════════════════════════════╗");
-    println!("║           RPG GAME — DEMO                ║");
+use std::io::{self, Write};
+
+pub fn interactive_combat(player: &mut Player, enemy: &mut Enemy) {
+    println!("\n╔══════════════════════════════════════════╗");
+    println!("║ ⚔️  COMBAT INITIATED: {} vs {} ", player.name, enemy.name);
     println!("╚══════════════════════════════════════════╝\n");
+    // Unlock talents for the player
+    if let PlayerTalentTree::Warrior(ref mut w) = player.talents {
+        w.taunt_unlocked = true;
+        w.war_fury_lvl = 5;
+        w.executioner_lvl = 5;
+    }
+    
+    if let PlayerTalentTree::Rogue(ref mut r) = player.talents {
+        r.shadow_step_unlocked = true;
+        r.flurry_blades_lvl = 5;
+    }
 
-    // ── Warrior DPS ─────────────────────────────────────────
-    println!("━━━ WARRIOR DPS TEST ━━━");
-    let mut warrior = Player::new("Thor", PlayerClass::Warrior, PlayerSpec::WarriorDPS);
-    warrior.print_stats();
-
-    let mut goblin = Enemy::new("Goblin Scout", 80.0, 5.0, 75.0, 30);
-    println!("\n⚔️  Combat start: {} vs {}", warrior.name, goblin.name);
-    while !goblin.is_dead() {
-        warrior.use_ability("basic_attack", &mut goblin);
-        if goblin.is_dead() {
-            warrior.defeat_enemy(&goblin);
+    
+    if let PlayerTalentTree::Mage(ref mut mage) = player.talents {
+        if let Some(crate::talents::ElementalDpsTree::Fire(ref mut fire)) = mage.dps_tree {
+            fire.fireball = 5;
+            fire.ignite = 5;
+            fire.firestorm = 5;
         }
     }
-    warrior.print_stats();
+    let mut turn_number = 1;
 
-    // ── Warrior Tank ─────────────────────────────────────────
-    println!("\n━━━ WARRIOR TANK TEST ━━━");
-    let mut tank = Player::new("Shield", PlayerClass::Warrior, PlayerSpec::WarriorTank);
-    tank.print_stats();
-    println!(
-        "Tank armor: {:.2} vs DPS armor: {:.2}",
-        tank.stats.armor,
-        warrior.stats.armor
-    );
+    loop {
+        println!("--- 🔄 TURN {} ---", turn_number);
+        println!("🧑 {} | HP: {:.0}/{:.0} | Mana: {:.0}/{:.0}", 
+            player.name, player.stats.current_hp, player.stats.max_hp, player.stats.current_mana, player.stats.max_mana);
+        println!("👾 {} | HP: {:.0}/{:.0}", 
+            enemy.name, enemy.current_hp, enemy.max_hp);
 
-    // ── Rogue Assassin ───────────────────────────────────────
-    println!("\n━━━ ROGUE ASSASSIN TEST ━━━");
-    let mut rogue = Player::new("Shadow", PlayerClass::Rogue, PlayerSpec::RogueAssassin);
-    if let PlayerTalentTree::Rogue(ref mut r) = rogue.talents {
-        r.flurry_blades_lvl = 1;
+        let abilities = player.get_available_abilities();
+        println!("\nChoose your action:");
+        for (i, ability) in abilities.iter().enumerate() {
+            println!("  [{}] {}", i + 1, ability);
+        }
+
+        print!("\n> ");
+        io::stdout().flush().unwrap(); 
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+
+        let choice: usize = match input.trim().parse() {
+            Ok(num) => num,
+            Err(_) => {
+                println!("❌ Invalid input! You fumbled and lost your turn.");
+                0
+            }
+        };
+
+        if choice > 0 && choice <= abilities.len() {
+            let selected_ability = &abilities[choice - 1];
+            println!("\n▶️ You used: {}", selected_ability);
+            player.use_ability(selected_ability, enemy);
+        }
+if enemy.ignite_turns > 0 {
+            let burn_dmg = 35.0; 
+            enemy.current_hp -= burn_dmg;
+            enemy.ignite_turns -= 1;
+            println!("🔥 {} takes {:.0} Burn damage! ({} turns left)", enemy.name, burn_dmg, enemy.ignite_turns);
+        }
+
+        if enemy.poison_stacks > 0 {
+            let poison_dmg = (enemy.poison_stacks as f64) * 15.0; 
+            enemy.current_hp -= poison_dmg;
+            println!("🤢 {} takes {:.0} Poison damage from {} stacks!", enemy.name, poison_dmg, enemy.poison_stacks);
+        }
+        
+        if enemy.is_dead() {
+            println!("\n🎉 VICTORY! {} succumbed to their wounds!", enemy.name);
+            player.defeat_enemy(enemy);
+            break;
+        }
+
+
+println!("\n▶️ {}'s turn!", enemy.name);
+        
+        
+        if enemy.is_frozen {
+            println!("🥶 {} is frozen solid and skips their turn!", enemy.name);
+            enemy.is_frozen = false; 
+        } else {
+            
+            let enemy_base_dmg = 15.0; 
+            let damage_taken = (enemy_base_dmg - player.stats.armor).max(1.0);
+            
+            player.stats.current_hp -= damage_taken;
+            println!("💥 {} attacks {} for {:.0} damage!", enemy.name, player.name, damage_taken);
+
+            
+            if player.stats.current_hp <= 0.0 {
+                println!("\n💀 GAME OVER! {} was defeated by {}...", player.name, enemy.name);
+                break;
+            }
+        }
+
+        player.tick_cooldowns();
+        player.regenerate();
+        enemy.regenerate();
+
+        println!("✨ Turn ends: HP/Mana regenerated.");
+        //println!("\n--------------------------------------------\n");
+        println!("\n--------------------------------------------\n");
+        turn_number += 1;
     }
-    rogue.print_stats();
-
-    let mut orc = Enemy::new("Orc Grunt", 200.0, 5.0, 100.0, 50);
-    println!("\n⚔️  Rogue attacks with Flurry Blades!");
-    rogue.use_ability("basic_attack", &mut orc);
-    println!("Orc HP after flurry: {:.1}", orc.current_hp);
-
-    // ── Mage Ice ─────────────────────────────────────────────
-    println!("\n━━━ MAGE ICE TEST ━━━");
-    let mut mage = Player::new("Jaina", PlayerClass::Mage, PlayerSpec::MageElemental);
-    mage.choose_elemental_spec("ice");
-    mage.talent_points = 3;
-    mage.upgrade_mage_dps_talent("frostbolt");
-    mage.upgrade_mage_dps_talent("ice_lance");
-    mage.print_stats();
-
-    let mut troll = Enemy::new("Ice Troll", 300.0, 8.0, 120.0, 60);
-    println!("\n🧙 Mage combo: Frostbolt → Ice Lance (shatter)");
-    mage.use_ability("frostbolt", &mut troll);   // freeze
-    mage.tick_cooldowns();
-    mage.use_ability("ice_lance", &mut troll);    // shatter x2
-    println!("Troll HP: {:.1}/{:.1}", troll.current_hp, troll.max_hp);
-
-    // ── Mage Fire ────────────────────────────────────────────
-    println!("\n━━━ MAGE FIRE TEST ━━━");
-    let mut fire_mage = Player::new("Kael", PlayerClass::Mage, PlayerSpec::MageElemental);
-    fire_mage.choose_elemental_spec("fire");
-    fire_mage.talent_points = 2;
-    fire_mage.upgrade_mage_dps_talent("fireball");
-    fire_mage.upgrade_mage_dps_talent("ignite");
-
-    let mut wolf = Enemy::new("Fire Wolf", 150.0, 3.0, 80.0, 40);
-    println!("\n🔥 Fire Mage attacks!");
-    fire_mage.use_ability("fireball", &mut wolf);
-    println!("Wolf HP: {:.1}/{:.1}", wolf.current_hp, wolf.max_hp);
-
-    // ── Mana starved test ────────────────────────────────────
-    println!("\n━━━ MANA SYSTEM TEST ━━━");
-    let mut broke_mage = Player::new("Oom", PlayerClass::Mage, PlayerSpec::MageElemental);
-    broke_mage.choose_elemental_spec("ice");
-    broke_mage.talent_points = 1;
-    broke_mage.upgrade_mage_dps_talent("frostbolt");
-    broke_mage.stats.current_mana = 5.0;
-
-    let mut dummy = Enemy::new("Dummy", 999.0, 0.0, 0.0, 0);
-    println!("Mana: {:.0} — trying to cast Frostbolt (costs 20):", broke_mage.stats.current_mana);
-    broke_mage.use_ability("frostbolt", &mut dummy);
-    println!("Dummy HP unchanged: {:.0}", dummy.current_hp);
-
-    // ── Level Up chain ───────────────────────────────────────
-    println!("\n━━━ LEVEL UP TEST ━━━");
-    let mut hero = Player::new("Hero", PlayerClass::Warrior, PlayerSpec::WarriorDPS);
-    println!("Before: Lv{} STR:{:.0} HP:{:.0}", hero.level, hero.stats.strength, hero.stats.max_hp);
-    hero.gain_exp(9999.0);
-    println!("After:  Lv{} STR:{:.0} HP:{:.0} TP:{}", hero.level, hero.stats.strength, hero.stats.max_hp, hero.talent_points);
-
-    // ── Cooldown visual ──────────────────────────────────────
-    println!("\n━━━ COOLDOWN TEST ━━━");
-    let mut cd_mage = Player::new("CD", PlayerClass::Mage, PlayerSpec::MageElemental);
-    cd_mage.choose_elemental_spec("ice");
-    cd_mage.talent_points = 1;
-    cd_mage.upgrade_mage_dps_talent("frostbolt");
-    cd_mage.stats.current_mana = 999.0;
-
-    let mut target = Enemy::new("Target", 1000.0, 0.0, 0.0, 0);
-    println!("Turn 1 — cast:");
-    cd_mage.use_ability("frostbolt", &mut target);
-    println!("Turn 2 — on cooldown:");
-    cd_mage.use_ability("frostbolt", &mut target);
-    println!("tick...");
-    cd_mage.tick_cooldowns();
-    println!("Turn 3 — ready again:");
-    cd_mage.use_ability("frostbolt", &mut target);
 }
 
+fn main() {
+    println!("╔══════════════════════════════════════════╗");
+    println!("║    ⚔️ KOKTEL_TALES MAX-LEVEL ARENA ⚔️     ║");
+    println!("╚══════════════════════════════════════════╝");
+    println!("\nSelect your specialization (All characters are Level 60):");
+    
+    println!("\n🛡️ WARRIOR:");
+    println!("  [1] Arms Warrior (Melee DPS)");
+    println!("  [2] Protection Warrior (Tank - High Armor/HP)");
+    
+    println!("\n🪄 MAGE:");
+    println!("  [3] Ice Mage (Elemental CC)");
+    println!("  [4] Void Mage (DoT Damage)");
+    println!("  [5] Fire Mage (Shadow/Mana Burn)");
+    println!("  [6] Poison Mage (Damage over Time)"); 
+
+    println!("\n🗡️ ROGUE:");
+    println!("  [7] Assassination Rogue (Burst/Poison)");
+    println!("  [8] Duelist Rogue (Evasion/Fast Strikes)");
+
+    print!("\n> ");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+
+    let mut player = match input.trim() {
+        "1" => Player::new("Garrosh", PlayerClass::Warrior, PlayerSpec::WarriorDPS),
+        "2" => Player::new("Muradin", PlayerClass::Warrior, PlayerSpec::WarriorTank),
+        "3" => {
+            let mut mage = Player::new("Jaina", PlayerClass::Mage, PlayerSpec::MageElemental);
+            mage.choose_elemental_spec("ice");
+            mage
+        },
+        "4" => {
+            let mut mage = Player::new("Guldan", PlayerClass::Mage, PlayerSpec::MageElemental);
+            mage.choose_elemental_spec("void");
+            mage
+        },
+        "5" => {
+            let mut mage = Player::new("Kaelthas", PlayerClass::Mage, PlayerSpec::MageElemental); 
+            mage.choose_elemental_spec("fire");
+            mage
+        }, 
+        "6" => {
+            let mut mage = Player::new("Kaelthas", PlayerClass::Mage, PlayerSpec::MageElemental); 
+            mage.choose_elemental_spec("poison"); 
+            mage
+        },
+        "7" => Player::new("Valeera", PlayerClass::Rogue, PlayerSpec::RogueAssassin), 
+        "8" => Player::new("Garona", PlayerClass::Rogue, PlayerSpec::RogueDuelist), 
+        _ => {
+            println!("\n❌ Invalid choice! Defaulting to Ice Mage.");
+            let mut default_mage = Player::new("Jaina", PlayerClass::Mage, PlayerSpec::MageElemental);
+            default_mage.choose_elemental_spec("ice");
+            default_mage
+        }
+    };
+
+
+    for _ in 0..59 {
+        player.level_up();
+    }
+
+
+    player.talent_points = 20; 
+    
+
+    if let PlayerTalentTree::Mage(ref mage) = player.talents {
+        if let Some(ref dps_tree) = mage.dps_tree {
+            match dps_tree {
+                talents::ElementalDpsTree::Ice(_) => {
+                    player.upgrade_mage_dps_talent("frostbolt");
+                    player.upgrade_mage_dps_talent("ice_lance");
+                }
+                talents::ElementalDpsTree::Void(_) => {
+                    player.upgrade_mage_dps_talent("void_bolt"); 
+                    player.upgrade_mage_dps_talent("void_drain"); 
+                }
+                talents::ElementalDpsTree::Fire(_) => {
+                    player.upgrade_mage_dps_talent("fireball");
+                }
+                talents::ElementalDpsTree::Poison(_) => {
+                    player.upgrade_mage_dps_talent("venom_strike");
+                }
+            }
+        }
+    }
+    player.stats.current_hp = player.stats.max_hp;
+    player.stats.current_mana = player.stats.max_mana;
+    if let PlayerTalentTree::Warrior(ref mut w) = player.talents {
+        if player.spec == PlayerSpec::WarriorTank {
+            w.taunt_unlocked = true; 
+            w.iron_fortress_lvl = 5; 
+        } else {
+            w.war_fury_lvl = 5; 
+            w.executioner_lvl = 5;
+        }
+    }
+
+    
+    if let PlayerTalentTree::Rogue(ref mut r) = player.talents {
+        if player.spec == PlayerSpec::RogueDuelist {
+            r.parry_lvl = 5; 
+        }
+    }
+    
+if player.spec == PlayerSpec::RogueAssassin {
+    if let PlayerTalentTree::Rogue(ref mut r) = player.talents {
+        r.shadow_step_unlocked = true; 
+        r.flurry_blades_lvl = 5;
+    }
+}
+
+if player.spec == PlayerSpec::RogueDuelist {
+    if let PlayerTalentTree::Rogue(ref mut r) = player.talents {
+        r.parry_lvl = 5; 
+    }
+}
+if player.class == PlayerClass::Warrior {
+    if let PlayerTalentTree::Warrior(ref mut w) = player.talents {
+        if player.spec == PlayerSpec::WarriorTank {
+            w.iron_fortress_lvl = 5;
+            w.ironwill_lvl = 3;
+            w.taunt_unlocked = true;
+        } else {
+            w.berserker_crit_lvl = 5;
+            w.true_strike_unlocked = true;
+            w.war_fury_lvl = 5;
+            w.executioner_lvl = 5;
+        }
+    }
+    
+    player.apply_warrior_passives();
+}
+    println!("\n✅ Character initialized at Level 60!");
+    println!("📊 HP: {:.0} | Mana: {:.0} | Armor: {:.2}", player.stats.max_hp, player.stats.max_mana, player.stats.armor);
+    println!("📈 HP Regen: {:.1}/turn | Mana Regen: {:.1}/turn", player.stats.hp_regen, player.stats.mana_regen);
+
+
+    let mut orc = Enemy::new("Elite Orc Overlord", 8000.0, 10.0, 150.0, 80);
+    
+
+    interactive_combat(&mut player, &mut orc);
+}
 
 #[cfg(test)]
 mod tests {
