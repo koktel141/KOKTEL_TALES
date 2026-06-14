@@ -19,7 +19,7 @@ pub enum StatModifier {
     NoEffect,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq,Copy)]
 pub enum PlayerClass {
     Warrior,
     Rogue,
@@ -68,6 +68,16 @@ impl Default for Stats {
     }
 }
 
+#[derive(Debug, Clone, PartialEq,Copy)]
+pub enum PlayerSpec {
+    WarriorDPS,
+    WarriorTank,
+    RogueAssassin,
+    RogueDuelist,
+    MageHealer,
+    MageElemental,
+}
+
 #[derive(Debug, Clone)]
 pub struct Player {
     pub name: String,
@@ -80,20 +90,84 @@ pub struct Player {
     pub talents: PlayerTalentTree,
     pub gold: u32,
     pub cooldowns: HashMap<String, u32>,
+    pub spec: PlayerSpec,
 }
 
+pub fn mana_cost(ability: &str) -> f64 {
+    match ability {
+        // no mana
+        "basic_attack"    => 0.0,
+        "war_fury"        => 0.0, // passive buff
+        "counter_attack"  => 0.0, // reaction
+        "undying_rage"    => 0.0, // threshold trigger
+
+        // ── Warrior
+        "taunt"           => 10.0,
+        "executioner"     => 20.0,
+
+        // ── Rogue 
+        "shadow_step"     => 15.0,
+
+        // ── Mage Healer
+        "holy_heal"       => 30.0,
+        "holy_shield"     => 35.0,
+        "resurrection"    => 150.0,
+
+        // ── Ice 
+        "frostbolt"       => 20.0,
+        "deep_freeze"     => 25.0,
+        "ice_lance"       => 15.0,
+        "blizzard"        => 70.0,
+
+        // ── Fire 
+        "fireball"        => 25.0,
+        "ignite"          => 15.0,
+        "firestorm"       => 70.0,
+
+        // ── Void 
+        "void_bolt"       => 18.0,
+        "reality_fracture"=> 30.0,
+        "void_drain"      => 22.0,
+        "null_field"      => 28.0,
+
+        // ── Poison 
+        "venom_strike"    => 12.0,
+        "toxic_cloud"     => 20.0,
+        "weaken"          => 18.0,
+
+        _ => 0.0,
+    }
+}
 impl Player {
     pub fn update_derived_stats(&mut self) {
+        let armor_scale = match self.spec {
+        PlayerSpec::WarriorTank   => 0.65,
+        PlayerSpec::RogueDuelist  => 0.30,
+        _                         => 0.16,
+        };
+        self.stats.armor = self.stats.agility * armor_scale;
+        let base_hp = match self.class {
+        PlayerClass::Warrior => 150.0,
+        PlayerClass::Rogue   => 100.0,
+        PlayerClass::Mage    =>  80.0,
+        };
+        let base_mana = match self.class {
+        PlayerClass::Warrior =>  50.0,
+        PlayerClass::Rogue   =>  70.0,
+        PlayerClass::Mage    => 150.0,
+        };
         
-        self.stats.max_hp = 80.0 + (self.stats.strength * 10.0);
-        self.stats.hp_regen = 1.0 + (self.stats.strength * 0.15);
+        self.stats.max_hp = base_hp + (self.stats.strength * 10.0);
+        self.stats.hp_regen = 2.0 + (self.stats.strength * 0.15);
         
-        self.stats.max_mana = 50.0 + (self.stats.intelligence * 12.0);
-        self.stats.mana_regen = 1.0 + (self.stats.intelligence * 0.1);
+        self.stats.max_mana = base_mana + (self.stats.intelligence * 12.0);
+        self.stats.mana_regen = 2.0 + (self.stats.intelligence * 0.1);
         
         
-        self.stats.armor = 0.0 + (self.stats.agility * 0.16);
-        if self.stats.current_hp > self.stats.max_hp { self.stats.current_hp = self.stats.max_hp; }
+        self.stats.armor = 0.1 + (self.stats.agility * 0.16);
+        self.stats.current_hp   = self.stats.current_hp.min(self.stats.max_hp);
+        self.stats.current_mana = self.stats.current_mana.min(self.stats.max_mana);
+        
     }
     pub fn calculate_hit_damage(&self, base_dmg: f64) -> (f64, bool) {
         let mut rng = rand::thread_rng();
@@ -118,21 +192,34 @@ impl Player {
     }
     
     pub fn use_ability(&mut self, ability_name: &str, enemy: &mut Enemy) {
-    
-
+// 1️⃣ Available check
     let available = self.get_available_abilities();
     if !available.contains(&ability_name.to_string()) {
-        println!("❌ {} cannot use '{}'. Ability locked or wrong class!", self.name, ability_name);
+        println!("❌ {} cannot use '{}'!", self.name, ability_name);
         return;
     }
-    
-    if let Some(&remaining_turns) = self.cooldowns.get(ability_name) {
-        if remaining_turns > 0 {
-            println!("⏳ '{}' is on cooldown! Wait {} more turn(s).", ability_name, remaining_turns);
+
+    // 2️⃣ Cooldown check
+    if let Some(&cd) = self.cooldowns.get(ability_name) {
+        if cd > 0 {
+            println!("⏳ '{}' on cooldown! {} turn(s) left.", ability_name, cd);
             return;
         }
     }
-    
+
+    // 3️⃣ Mana check
+    let cost = mana_cost(ability_name);
+    if self.stats.current_mana < cost {
+        println!("💧 Not enough mana! '{}' costs {:.0} (have {:.0}/{:.0})",
+            ability_name, cost, self.stats.current_mana, self.stats.max_mana);
+        return;
+    }
+    if cost > 0.0 {
+        self.stats.current_mana -= cost;
+        println!("💧 -{:.0} mana  ({:.0}/{:.0})",
+            cost, self.stats.current_mana, self.stats.max_mana);
+    }
+
     match ability_name {
         "basic_attack" => {
             let mut rng = rand::thread_rng();
@@ -165,54 +252,49 @@ impl Player {
         if is_crit_extra { println!("💥 CRITICAL HIT!"); }
         enemy.take_damage(dmg_extra);
     }
-}
+    },
         "frostbolt" => {
-            let mana_cost = 20.0;
-            if self.stats.current_mana < mana_cost {
-                println!("💧 Not enough mana for Frostbolt!");
-                return;
-            }
-            self.stats.current_mana -= mana_cost;
-
+            
             let spell_power = self.stats.intelligence * 2.5;
-            if let PlayerTalentTree::Mage(ref mage) = self.talents {
-                if let Some(crate::talents::ElementalDpsTree::Ice(ref ice)) = mage.dps_tree {
-                    let damage = spell_power * (1.0 + (ice.frostbolt as f64 * 0.15));
-                    println!("❄️ {} casts Frostbolt!", self.name);
-                    enemy.take_damage(damage);
-                    enemy.is_frozen = true;
-
-                    
-                    self.cooldowns.insert("frostbolt".to_string(), 1);
-                }
+            let damage = {
+                if let PlayerTalentTree::Mage(ref mage) = self.talents {
+                    if let Some(crate::talents::ElementalDpsTree::Ice(ref ice)) = mage.dps_tree {
+                        spell_power * (1.0 + (ice.frostbolt as f64 * 0.15))
+                    } else { 0.0 }
+                } else { 0.0 }
+            };
+            if damage > 0.0 {
+                println!("❄️ {} casts Frostbolt!", self.name);
+                enemy.take_damage(damage);
+                enemy.is_frozen = true;
+                println!("🥶 {} is Frozen!", enemy.name);
             }
+            
+            self.cooldowns.insert("frostbolt".to_string(), 1);
         }
+
         "ice_lance" => {
-            let mana_cost = 15.0;
-            if self.stats.current_mana < mana_cost {
-                println!("💧 Not enough mana for Ice Lance!");
-                return;
+            let damage = {
+                if let PlayerTalentTree::Mage(ref mage) = self.talents {
+                    if let Some(crate::talents::ElementalDpsTree::Ice(ref ice)) = mage.dps_tree {
+                        let base = self.stats.intelligence * 2.5
+                            * (1.2 + (ice.ice_lance as f64 * 0.20));
+                        if enemy.is_frozen {
+                            println!("🧊 Shatter Combo! Double damage!");
+                            base * 2.0
+                        } else { base }
+                    } else { 0.0 }
+                } else { 0.0 }
+            };
+            if damage > 0.0 {
+                println!("❄️ {} launches Ice Lance!", self.name);
+                enemy.take_damage(damage);
+                enemy.is_frozen = false;
             }
-            self.stats.current_mana -= mana_cost;
-
-            let spell_power = self.stats.intelligence * 2.5;
-            if let PlayerTalentTree::Mage(ref mage) = self.talents {
-                if let Some(crate::talents::ElementalDpsTree::Ice(ref ice)) = mage.dps_tree {
-                    let mut damage = spell_power * (1.2 + (ice.ice_lance as f64 * 0.20));
-                    if enemy.is_frozen {
-                        damage *= 2.0;
-                        println!("🧊 Shatter Combo! Double damage!");
-                    }
-                    println!("❄️ {} launches Ice Lance!", self.name);
-                    enemy.take_damage(damage);
-                    enemy.is_frozen = false;
-
-                    
-                    self.cooldowns.insert("ice_lance".to_string(), 1);
-                }
-            }
+            self.cooldowns.insert("ice_lance".to_string(), 1);
         }
-        _ => println!("❌ Ability logic not implemented yet!"),
+
+        _ => println!("❌ Ability '{}' not implemented yet!", ability_name),
     }
     }
     pub fn tick_cooldowns(&mut self) {
@@ -411,42 +493,50 @@ pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
             }
         }
     }
-    pub fn new(name: &str, class: PlayerClass) -> Self {
-        let stats = match &class {
-            PlayerClass::Warrior => Stats {
-                max_hp: 150.0, current_hp: 150.0,
-                max_mana: 50.0,  current_mana: 50.0,
-                strength: 15.0, agility: 5.0, intelligence: 2.0,
-                armor: 10.0,
-                crit_chance: 0.30, // DPS warrior starts with 30% crit
-                crit_multiplier: 1.5,
-                hp_regen: 3.0,     // highest base regen
-                mana_regen: 1.0,
-                ..Default::default()
-            },
-            PlayerClass::Rogue => Stats {
-                max_hp: 100.0, current_hp: 100.0,
-                max_mana: 70.0,  current_mana: 70.0,
-                strength: 6.0, agility: 15.0, intelligence: 4.0,
-                armor: 5.0,
-                crit_chance: 0.05,
-                crit_multiplier: 1.5,
-                hp_regen: 1.5,
-                mana_regen: 1.5,
-                ..Default::default()
-            },
-            PlayerClass::Mage => Stats {
-                max_hp: 80.0,  current_hp: 80.0,
-                max_mana: 150.0, current_mana: 150.0,
-                strength: 2.0, agility: 4.0, intelligence: 16.0,
-                armor: 2.0,
-                crit_chance: 0.05,
-                crit_multiplier: 1.5,
-                hp_regen: 1.0,
-                mana_regen: 5.0, // highest mana regen
-                ..Default::default()
-            },
-        };
+    pub fn new(name: &str, class: PlayerClass,spec: PlayerSpec) -> Self {
+
+    let (str, agil, intel, armor_scale) = match spec {
+        PlayerSpec::WarriorDPS    => (30.0, 18.0, 15.0, 0.16),
+        PlayerSpec::WarriorTank   => (32.0, 15.0, 15.0, 0.65),
+        PlayerSpec::RogueAssassin => (20.0, 35.0, 10.0, 0.16),
+        PlayerSpec::RogueDuelist  => (18.0, 30.0, 12.0, 0.30),
+        PlayerSpec::MageHealer    => ( 15.0, 8.0, 40.0, 0.16),
+        PlayerSpec::MageElemental => ( 10.0,  8.0, 45.0, 0.16),
+    };
+
+    let base_hp = match class {
+        PlayerClass::Warrior => 150.0,
+        PlayerClass::Rogue   => 100.0,
+        PlayerClass::Mage    =>  80.0,
+    };
+    let base_mana = match class {
+        PlayerClass::Warrior =>  50.0,
+        PlayerClass::Rogue   =>  70.0,
+        PlayerClass::Mage    => 150.0,
+    };
+
+    let mut stats = Stats {
+        max_hp: base_hp, current_hp: base_hp,
+        max_mana: base_mana, current_mana: base_mana,
+        strength: str, agility: agil, intelligence: intel,
+        armor: agil * armor_scale, 
+        crit_chance: match &class {
+            PlayerClass::Warrior => 0.30,
+            _                    => 0.05,
+        },
+        crit_multiplier: 1.5,
+        hp_regen: match &class {
+            PlayerClass::Warrior => 3.0,
+            PlayerClass::Rogue   => 1.5,
+            PlayerClass::Mage    => 1.0,
+        },
+        mana_regen: match &class {
+            PlayerClass::Mage  => 5.0,
+            PlayerClass::Rogue => 1.5,
+            _                  => 1.0,
+        },
+        ..Default::default()
+    };
         let talents = match &class {
             PlayerClass::Warrior => PlayerTalentTree::Warrior(crate::talents::WarriorTalents::new()),
             PlayerClass::Rogue => PlayerTalentTree::Rogue(crate::talents::RogueTalents::new()),
@@ -462,12 +552,13 @@ pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
             stats,
             talents,
             gold: 0,
+            spec,
             cooldowns: HashMap::new(),
         }
         
     }
 
-    /// Apply a single stat modifier. Use after unlocking a talent.
+
     pub fn apply_modifier(&mut self, modifier: &StatModifier) {
         match modifier {
             StatModifier::AddStrength(v)     => self.stats.strength += *v,
@@ -493,10 +584,9 @@ pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
             StatModifier::AddManaRegen(v)    => self.stats.mana_regen += *v,
             StatModifier::NoEffect           => {}
         }
-        self.update_derived_stats(); // update derived stats after applying a new modifier
+        self.update_derived_stats(); 
     }
 
-    /// Switch weapon style. Resets and reapplies block stats accordingly.
     pub fn set_weapon_style(&mut self, style: WeaponStyle) {
         
         if self.weapon_style == WeaponStyle::OneHandedShield {
@@ -518,10 +608,11 @@ pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
             PlayerClass::Rogue => self.stats.agility,         
             PlayerClass::Mage => self.stats.intelligence,     
         };
-
-        
         let base = 10.0 + class_scaling_bonus;
-        base
+        match self.weapon_style {
+        WeaponStyle::TwoHanded       => base * 1.20,
+        WeaponStyle::OneHandedShield => base * 0.75,
+    }
     }
     
 
@@ -532,34 +623,34 @@ pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
     pub fn gain_exp(&mut self, amount: f64) {
         println!("✨ Gained +{:.0} EXP.", amount);
         self.exp += amount;
-
-        let required = self.exp_to_next_level();
-        if self.exp >= required {
-            self.exp -= required;
+        loop {
+            let needed = self.exp_to_next_level();
+            if self.exp < needed { break; }
+            self.exp -= needed;
             self.level_up();
         }
     }
     pub fn level_up(&mut self) {
-self.level += 1;
-    self.talent_points += 1;
+        self.level += 1;
+        self.talent_points += 1;
 
-    // اعمال سیستم لول‌آپ جدید (۳ پوینت برای استت اصلی، ۱ پوینت برای بقیه)
-    match self.class {
-        PlayerClass::Warrior => {
-            self.stats.strength += 3.0;
-            self.stats.agility += 1.0;
-            self.stats.intelligence += 1.0;
-        },
-        PlayerClass::Rogue => {
-            self.stats.strength += 1.0;
-            self.stats.agility += 3.0;
-            self.stats.intelligence += 1.0;
-        },
-        PlayerClass::Mage => {
-            self.stats.strength += 1.0;
-            self.stats.agility += 1.0;
-            self.stats.intelligence += 3.0;
-        },
+
+        match self.class {
+            PlayerClass::Warrior => {
+                self.stats.strength += 3.0;
+                self.stats.agility += 1.0;
+                self.stats.intelligence += 1.0;
+            },
+            PlayerClass::Rogue => {
+                self.stats.strength += 1.0;
+                self.stats.agility += 3.0;
+                self.stats.intelligence += 1.0;
+            },
+            PlayerClass::Mage => {
+                self.stats.strength += 1.0;
+                self.stats.agility += 1.0;
+                self.stats.intelligence += 3.0;
+            },
     }
 
     self.update_derived_stats();
