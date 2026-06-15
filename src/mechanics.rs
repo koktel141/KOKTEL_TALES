@@ -290,7 +290,7 @@ pub fn get_available_abilities(&self) -> Vec<String> {
         self.stats.mana_regen = 2.0 + (self.stats.intelligence * 0.1);
         
         
-        self.stats.armor = 0.1 + (self.stats.agility * 0.16);
+        self.stats.armor = 0.1 + ( self.stats.agility * armor_scale);
         self.stats.current_hp   = self.stats.current_hp.min(self.stats.max_hp);
         self.stats.current_mana = self.stats.current_mana.min(self.stats.max_mana);
         
@@ -553,8 +553,8 @@ match ability_name {
             self.cooldowns.insert("toxic_cloud".to_string(), 4);
         },
         "parry" => {
-            println!("🛡️ {} enters Parry stance!", self.name);
-            self.stats.armor += 50.0;
+            println!("🛡️ {} enters Parry stance! (Next hit blocked)", self.name);
+            self.stats.block_chance = (self.stats.block_chance + 0.5).min(0.95);
             self.cooldowns.insert("parry".to_string(), 3);
         },
 
@@ -779,7 +779,7 @@ pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
         PlayerClass::Mage    => 150.0,
     };
 
-    let mut stats = Stats {
+    let stats = Stats {
         max_hp: base_hp, current_hp: base_hp,
         max_mana: base_mana, current_mana: base_mana,
         strength: str, agility: agil, intelligence: intel,
