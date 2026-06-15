@@ -138,7 +138,87 @@ pub fn mana_cost(ability: &str) -> f64 {
         _ => 0.0,
     }
 }
+pub fn get_talent_list(player: &Player) -> Vec<(&'static str, &'static str)> {
+    match player.class {
+        PlayerClass::Warrior => {
+            if player.spec == PlayerSpec::WarriorTank {
+                vec![("taunt", "Unlock Taunt ability (Costs 10 Mana)")]
+            } else {
+                vec![
+                    ("war_fury", "Upgrade War Fury passive (150% damage strike opportunity)"),
+                    ("executioner", "Upgrade Executioner strike (Executes low HP enemies)"),
+                ]
+            }
+        }
+        PlayerClass::Rogue => {
+            if player.spec == PlayerSpec::RogueAssassin {
+                vec![
+                    ("shadow_step", "Unlock Shadow Step ability (Costs 15 Mana)"),
+                    ("flurry_blades", "Upgrade Flurry Blades (Unlocks Counter Attack triggers)"),
+                ]
+            } else {
+                vec![("parry", "Upgrade Parry passive (Unlocks Parry & Counter mechanics)")]
+            }
+        }
+        PlayerClass::Mage => {
+            match &player.talents {
+                PlayerTalentTree::Mage(m) => {
+                    if let Some(ref dps) = m.dps_tree {
+                        match dps {
+                            crate::talents::ElementalDpsTree::Ice(_) => vec![
+                                ("frostbolt", "Upgrade Frostbolt spell (Applies Freeze status)"),
+                                ("ice_lance", "Upgrade Ice Lance spell (Double damage on Frozen targets)"),
+                                ("deep_freeze", "Upgrade Deep Freeze utility spell"),
+                            ],
+                            crate::talents::ElementalDpsTree::Fire(_) => vec![
+                                ("fireball", "Upgrade Fireball spell (Applies stacking Burn DoT)"),
+                                ("ignite", "Upgrade Ignite utility (Explodes active Burn DoTs)"),
+                                ("firestorm", "Upgrade Firestorm ultimate AoE spell"),
+                            ],
+                            crate::talents::ElementalDpsTree::Void(_) => vec![
+                                ("void_bolt", "Upgrade Void Bolt spell (Deals True Damage)"),
+                                ("void_drain", "Upgrade Void Drain spell (Steals life/mana)"),
+                            ],
+                            crate::talents::ElementalDpsTree::Poison(_) => vec![
+                                ("venom_strike", "Upgrade Venom Strike spell (Applies Poison DoT)"),
+                                ("toxic_cloud", "Upgrade Toxic Cloud AoE poison spell"),
+                            ],
+                        }
+                    } else { 
+                        Vec::<(&'static str, &'static str)>::new() 
+                    }
+                }
+                _ => Vec::<(&'static str, &'static str)>::new()
+            }
+        }
+    }
+}
 impl Player {
+    pub fn upgrade_generic_talent(&mut self, talent_name: &str) -> bool {
+        if self.talent_points == 0 { return false; }
+        match &mut self.talents {
+            PlayerTalentTree::Mage(_) => {
+                self.upgrade_mage_dps_talent(talent_name);
+                true
+            }
+            PlayerTalentTree::Warrior(w) => {
+                match talent_name {
+                    "taunt" => { w.taunt_unlocked = true; self.talent_points -= 1; true }
+                    "war_fury" => { w.war_fury_lvl += 1; self.talent_points -= 1; true }
+                    "executioner" => { w.executioner_lvl += 1; self.talent_points -= 1; true }
+                    _ => false
+                }
+            }
+            PlayerTalentTree::Rogue(r) => {
+                match talent_name {
+                    "shadow_step" => { r.shadow_step_unlocked = true; self.talent_points -= 1; true }
+                    "flurry_blades" => { r.flurry_blades_lvl += 1; self.talent_points -= 1; true }
+                    "parry" => { r.parry_lvl += 1; self.talent_points -= 1; true }
+                    _ => false
+                }
+            }
+        }
+    }
     pub fn apply_warrior_passives(&mut self) {
         if let PlayerTalentTree::Warrior(ref w) = self.talents {
             
@@ -157,51 +237,7 @@ impl Player {
             }
         }
     }
-    // pub fn get_available_abilities(&self) -> Vec<String> {
-    //     let mut abilities = vec!["basic_attack".to_string()];
 
-    //     match &self.talents {
-    //         PlayerTalentTree::Mage( mage) => {
-    //             if let Some(ref dps_tree) = mage.dps_tree {
-    //                 match dps_tree {
-    //                     crate::talents::ElementalDpsTree::Ice(ice) => {
-    //                         if ice.frostbolt > 0 { abilities.push("frostbolt".to_string()); }
-    //                         if ice.deep_freeze > 0 { abilities.push("deep_freeze".to_string()); }
-    //                         if ice.ice_lance > 0 { abilities.push("ice_lance".to_string()); }
-    //                         if ice.blizzard > 0 { abilities.push("blizzard".to_string()); }
-    //                     }
-    //                     crate::talents::ElementalDpsTree::Void(void) => {
-    //                         if void.void_bolt > 0 { abilities.push("void_bolt".to_string()); }
-    //                         if void.void_drain > 0 { abilities.push("void_drain".to_string()); }
-    //                     }
-    //                     crate::talents::ElementalDpsTree::Fire(fire) => {
-    //                         if fire.fireball > 0 { abilities.push("fireball".to_string()); }
-    //                         if fire.ignite > 0 { abilities.push("ignite".to_string()); }
-    //                         if fire.firestorm > 0 { abilities.push("firestorm".to_string()); }
-    //                     }
-    //                     crate::talents::ElementalDpsTree::Poison(p) => {
-    //                         if p.venom_strike > 0 { abilities.push("venom_strike".to_string()); }
-    //                         if p.toxic_cloud > 0 { abilities.push("toxic_cloud".to_string()); }
-    //                         if p.lethal_dose > 0 { abilities.push("lethal_dose".to_string()); }
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //         PlayerTalentTree::Warrior(w) => {
-                
-    //             if w.taunt_unlocked { abilities.push("taunt".to_string()); }
-    //             if w.war_fury_lvl > 0 { abilities.push("war_fury".to_string()); }
-    //             if w.executioner_lvl > 0 { abilities.push("executioner".to_string()); }
-    //         }
-    //         PlayerTalentTree::Rogue(r) => {
-    //             if r.shadow_step_unlocked { abilities.push("shadow_step".to_string()); }
-                
-    //             if r.parry_lvl > 0 { abilities.push("parry".to_string()); } 
-    //             if r.flurry_blades_lvl > 0 { abilities.push("counter_attack".to_string()); }
-    //         }
-    //     }
-    //     abilities
-    // }
 pub fn get_available_abilities(&self) -> Vec<String> {
     let mut abilities = vec!["basic_attack".to_string()];
 
@@ -571,68 +607,6 @@ match ability_name {
             }
         }
     }
-    // pub fn get_available_abilities(&self) -> Vec<String> {
-    //     let mut abilities = Vec::new();
-
-        
-    //     abilities.push("basic_attack".to_string());
-
-        
-    //     match &self.talents {
-    //         PlayerTalentTree::Warrior(warrior) => {
-                
-    //             if warrior.taunt_unlocked {
-    //                 abilities.push("taunt".to_string());
-    //             }
-                
-    //             if warrior.war_fury_lvl > 0 {
-    //                 abilities.push("war_fury".to_string());
-    //             }
-    //             if warrior.executioner_lvl > 0 {
-    //                 abilities.push("executioner".to_string());
-    //             }
-    //         }
-    //         PlayerTalentTree::Rogue(rogue) => {
-    //             if rogue.shadow_step_unlocked {
-    //                 abilities.push("shadow_step".to_string());
-    //             }
-    //             if rogue.counter_attack_lvl > 0 {
-    //                 abilities.push("counter_attack".to_string());
-    //             }
-    //         }
-    //         PlayerTalentTree::Mage(mage) => {
-                
-    //             if mage.holy_heal > 0 {
-    //                 abilities.push("holy_heal".to_string());
-    //             }
-                
-                
-    //             if let Some(ref dps_tree) = mage.dps_tree {
-    //                 match dps_tree {
-    //                     crate::talents::ElementalDpsTree::Ice(ice) => {
-    //                         if ice.frostbolt > 0 { abilities.push("frostbolt".to_string()); }
-    //                         if ice.deep_freeze > 0 { abilities.push("deep_freeze".to_string()); }
-    //                         if ice.ice_lance > 0 { abilities.push("ice_lance".to_string()); }
-    //                     }
-    //                     crate::talents::ElementalDpsTree::Fire(fire) => {
-    //                         if fire.fireball > 0 { abilities.push("fireball".to_string()); }
-    //                         if fire.ignite > 0 { abilities.push("ignite".to_string()); }
-    //                     }
-    //                     crate::talents::ElementalDpsTree::Void(void) => {
-    //                         if void.void_bolt > 0 { abilities.push("void_bolt".to_string()); }
-    //                         if void.void_drain > 0 { abilities.push("void_drain".to_string()); }
-    //                     }
-    //                     crate::talents::ElementalDpsTree::Poison(poison) => {
-    //                         if poison.venom_strike > 0 { abilities.push("venom_strike".to_string()); }
-    //                         if poison.toxic_cloud > 0 { abilities.push("toxic_cloud".to_string()); }
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     abilities
-    // }
 
 pub fn cast_mage_spell(&mut self, spell_name: &str, enemy: &mut Enemy) {
         

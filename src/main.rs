@@ -1,6 +1,7 @@
 mod mechanics;
 mod talents;
 mod combat;
+mod shop;
 
 use macroquad::prelude::*;
 use mechanics::{Player, PlayerClass, PlayerSpec};
@@ -31,6 +32,8 @@ enum Screen {
     Combat,
     Victory,
     GameOver,
+    LevelUp,
+    Shop,
 }
 
 // ── Class options ─────────────────────────────────────────────
@@ -65,7 +68,8 @@ struct GameState {
     wave:         u32,
     log:          Vec<String>,
     abilities:    Vec<String>,
-    cursor:       usize, // class select OR ability selector
+    cursor:       usize, 
+    shop:         Option<crate::shop::Shop>,
 }
 
 impl GameState {
@@ -79,6 +83,7 @@ impl GameState {
             log:       Vec::new(),
             abilities: Vec::new(),
             cursor:    0,
+            shop:      None,
         }
     }
 
@@ -88,13 +93,36 @@ impl GameState {
     }
 
     // ── Wave spawner ─────────────────────────────────────────
-    fn spawn_enemy(&self) -> Enemy {
-        match self.wave {
-            1 => Enemy::new("Goblin Scout",     80.0,   5.0,   75.0,  30),
-            2 => Enemy::new("Orc Warrior",     200.0,  12.0,  150.0,  60),
-            3 => Enemy::new("Dark Knight",     450.0,  22.0,  280.0, 110),
-            4 => Enemy::new("Fire Dragon",    1000.0,  38.0,  500.0, 250),
-            _ => Enemy::new("Ancient Golem", 2000.0,  60.0,  800.0, 500),
+fn spawn_enemy(&self) -> Enemy {
+        let is_boss = self.wave % 5 == 0;
+        // Dynamic scaling: enemies get stronger as waves increase
+        let scale = 1.0 + ((self.wave as f64 - 1.0) * 0.25);
+
+        if is_boss {
+            Enemy::new(
+                &format!("Ancient Golem Boss (Wave {})", self.wave),
+                2000.0 * scale,
+                60.0 * scale,
+                800.0 * scale,
+                500 + (self.wave * 50)
+            )
+        } else {
+            let mod_wave = self.wave % 5;
+            let (name, hp, atk, exp, gold) = match mod_wave {
+                1 => ("Goblin Scout", 80.0, 5.0, 75.0, 30),
+                2 => ("Orc Warrior", 200.0, 12.0, 150.0, 60),
+                3 => ("Dark Knight", 450.0, 22.0, 280.0, 110),
+                4 => ("Fire Dragon", 1000.0, 38.0, 500.0, 250),
+                _ => ("Unknown", 100.0, 10.0, 100.0, 50),
+            };
+
+            Enemy::new(
+                &format!("{} (Wave {})", name, self.wave),
+                hp * scale,
+                atk * scale,
+                exp * scale,
+                gold + (self.wave * 10)
+            )
         }
     }
 
@@ -131,6 +159,7 @@ impl GameState {
 
     // ── Transition to Combat ──────────────────────────────────
     fn start_combat(&mut self) {
+        let wave_multiplier = self.wave as i32;
         let enemy = self.spawn_enemy();
         self.enemy = Some(enemy);
         self.turn  = 1;
@@ -409,7 +438,7 @@ fn panel(x: f32, y: f32, w: f32, h: f32) {
 
 fn hp_bar(x: f32, y: f32, w: f32, h: f32, pct: f32, col: Color) {
     draw_rectangle(x, y, w, h, Color::from_rgba(30, 8, 8, 200));
-    draw_rectangle(x + 1.0, y + 1.0, ((w - 2.0) * pct.clamp(0.0, 1.0)), h - 2.0, col);
+    draw_rectangle(x + 1.0, y + 1.0, (w - 2.0) * pct.clamp(0.0, 1.0), h - 2.0, col);
     draw_rectangle_lines(x, y, w, h, 1.0, Color::from_rgba(180, 180, 180, 80));
 }
 
@@ -458,99 +487,106 @@ fn draw_combat_screen(state: &GameState) {
     let p = match state.player.as_ref() { Some(x) => x, None => return };
     let t = get_time() as f32;
 
-    // ── Background ──
-    // Sky gradient (two rects)
+    // Background: Sky gradient and Ground
     draw_rectangle(0.0, 0.0, W, GROUND_Y, Color::from_rgba(12, 12, 22, 255));
-    // Ground
     draw_rectangle(0.0, GROUND_Y, W, H - GROUND_Y, Color::from_rgba(20, 20, 35, 255));
     draw_line(0.0, GROUND_Y, W, GROUND_Y, 1.5, Color::from_rgba(55, 55, 95, 220));
 
-    // ── Player sprite ──
-    let p_col = match p.class {
-        PlayerClass::Warrior => Color::from_rgba( 60, 100, 200, 255),
-        PlayerClass::Rogue   => Color::from_rgba(100,  60, 160, 255),
-        PlayerClass::Mage    => Color::from_rgba( 60, 160, 200, 255),
-    };
-    // Idle bob
-    let bob  = 1.5 * (t * 2.4).sin().abs();
-    let py   = GROUND_Y - 48.0*S - bob;
-    match p.class {
-        PlayerClass::Warrior => draw_warrior(100.0, py, p_col),
-        PlayerClass::Mage    => draw_mage   (100.0, py, p_col),
-        PlayerClass::Rogue   => draw_rogue  (100.0, py, p_col),
+    // Boss Warning UI
+    let waves_until_boss = if state.wave % 5 == 0 { 0 } else { 5 - (state.wave % 5) };
+    if waves_until_boss == 0 {
+        draw_text("!!! BOSS FIGHT IN PROGRESS !!!", W / 2.0 - 150.0, 40.0, 24.0, RED);
+    } else if waves_until_boss == 1 {
+        draw_text("WARNING: BOSS APPROACHES NEXT WAVE!", W / 2.0 - 180.0, 40.0, 20.0, ORANGE);
+    } else {
+        draw_text(&format!("Waves until next Boss: {}", waves_until_boss), W / 2.0 - 110.0, 40.0, 16.0, LIGHTGRAY);
     }
 
-    // Player HP / MP bars
+    // Player Sprite Rendering
+    let p_col = match p.class {
+        PlayerClass::Warrior => Color::from_rgba(60, 100, 200, 255),
+        PlayerClass::Rogue   => Color::from_rgba(100, 60, 160, 255),
+        PlayerClass::Mage    => Color::from_rgba(60, 160, 200, 255),
+    };
+    let bob = 1.5 * (t * 2.4).sin().abs();
+    let py = GROUND_Y - 48.0 * S - bob;
+    
+    match p.class {
+        PlayerClass::Warrior => draw_warrior(100.0, py, p_col),
+        PlayerClass::Mage    => draw_mage(100.0, py, p_col),
+        PlayerClass::Rogue   => draw_rogue(100.0, py, p_col),
+    }
+
+    // Player HP/MP Bars & Stickers
     let hp_pct = (p.stats.current_hp / p.stats.max_hp) as f32;
     let mp_pct = (p.stats.current_mana / p.stats.max_mana) as f32;
     hp_bar(90.0, py - 30.0, 110.0, 10.0, hp_pct, GREEN);
-    hp_bar(90.0, py - 16.0, 110.0,  8.0, mp_pct, Color::from_rgba(50,80,220,255));
-    draw_text(&format!("{:.0}/{:.0}", p.stats.current_hp, p.stats.max_hp),
-        205.0, py - 22.0, 10.0, LIGHTGRAY);
-    draw_text("Hero", 90.0, py - 35.0, 12.0, WHITE);
+    hp_bar(90.0, py - 16.0, 110.0, 8.0, mp_pct, Color::from_rgba(50, 80, 220, 255));
+    draw_text(&format!("{:.0}/{:.0}", p.stats.current_hp, p.stats.max_hp), 205.0, py - 22.0, 10.0, LIGHTGRAY);
+    
+    let p_sticker = match p.class {
+        PlayerClass::Warrior => "[O_O]",
+        PlayerClass::Rogue   => "(-_-)",
+        PlayerClass::Mage    => "(^.^)",
+    };
+    draw_text(&format!("{} Hero", p_sticker), 90.0, py - 38.0, 16.0, WHITE);
 
-    // ── Enemy sprite ──
+    // Enemy Sprite Rendering & UI
     if let Some(ref e) = state.enemy {
+        let is_boss = state.wave % 5 == 0;
         let ex = 540.0;
-        let ey = GROUND_Y - 50.0*S;
-        draw_enemy(ex, ey, state.wave);
+        let ey = GROUND_Y - 50.0 * S;
+        
+        // Pass sprite ID 5 to render the massive Ancient Golem for Bosses
+        let sprite_id = if is_boss { 5 } else { state.wave % 5 };
+        draw_enemy(ex, ey, sprite_id);
 
         let en_pct = (e.current_hp / e.max_hp) as f32;
         hp_bar(ex - 5.0, ey - 28.0, 130.0, 10.0, en_pct, RED);
-        draw_text(&e.name, ex - 5.0, ey - 32.0, 12.0, WHITE);
-        draw_text(&format!("{:.0}/{:.0}", e.current_hp, e.max_hp),
-            ex + 130.0, ey - 22.0, 10.0, LIGHTGRAY);
+        draw_text(&format!("{:.0}/{:.0}", e.current_hp, e.max_hp), ex + 130.0, ey - 22.0, 10.0, LIGHTGRAY);
 
-        // Status icons
-        if e.is_frozen        { draw_text("❄ FROZEN", ex - 5.0, ey - 46.0, 11.0, Color::from_rgba(120,210,255,255)); }
-        if e.ignite_turns > 0 { draw_text(&format!("🔥 x{}", e.ignite_turns), ex + 70.0, ey - 46.0, 11.0, ORANGE); }
-        if e.poison_stacks > 0{ draw_text(&format!("☠ x{}", e.poison_stacks), ex + 110.0,ey - 46.0, 11.0, GREEN); }
+        let e_sticker = if is_boss { "\\m/ (X_X) \\m/" } else { "(>_<)" };
+        let title_col = if is_boss { RED } else { WHITE };
+        draw_text(&format!("{} {}", e_sticker, e.name), ex - 5.0, ey - 40.0, 16.0, title_col);
+
+        // Status Icons
+        if e.is_frozen { draw_text("FROZEN", ex - 5.0, ey - 56.0, 11.0, Color::from_rgba(120, 210, 255, 255)); }
+        if e.ignite_turns > 0 { draw_text(&format!("BURN x{}", e.ignite_turns), ex + 60.0, ey - 56.0, 11.0, ORANGE); }
+        if e.poison_stacks > 0 { draw_text(&format!("POISON x{}", e.poison_stacks), ex + 120.0, ey - 56.0, 11.0, GREEN); }
     }
 
-    // ── Bottom UI (3 panels) ──
+    // Bottom UI Panels
     let ui_y = GROUND_Y + 8.0;
     let ui_h = H - ui_y - 8.0;
 
-    // Stats panel
+    // Stats Panel
     panel(8.0, ui_y, 215.0, ui_h);
-    draw_text(&format!("Lv{}  Turn {}  Wave {}", p.level, state.turn, state.wave),
-        16.0, ui_y + 18.0, 12.0, GOLD);
-    draw_text(&format!("HP  {:.0}/{:.0}",  p.stats.current_hp, p.stats.max_hp),
-        16.0, ui_y + 34.0, 12.0, GREEN);
-    draw_text(&format!("MP  {:.0}/{:.0}",  p.stats.current_mana, p.stats.max_mana),
-        16.0, ui_y + 50.0, 12.0, Color::from_rgba(80,120,255,255));
-    draw_text(&format!("STR {:.0}  AGI {:.0}  INT {:.0}",
-        p.stats.strength, p.stats.agility, p.stats.intelligence),
-        16.0, ui_y + 66.0, 11.0, YELLOW);
-    draw_text(&format!("Armor {:.1}   Crit {:.0}%",
-        p.stats.armor, p.stats.crit_chance * 100.0),
-        16.0, ui_y + 82.0, 11.0, LIGHTGRAY);
-    draw_text(&format!("Gold {}   TP {}", p.gold, p.talent_points),
-        16.0, ui_y + 98.0, 11.0, GOLD);
-    draw_text(&format!("EXP {:.0}/{:.0}", p.exp, p.exp_to_next_level()),
-        16.0, ui_y + 114.0, 11.0, LIGHTGRAY);
-    draw_text(&format!("Regen HP+{:.1}  MP+{:.1}", p.stats.hp_regen, p.stats.mana_regen),
-        16.0, ui_y + 130.0, 11.0, DARKGRAY);
+    draw_text(&format!("Lv{}  Turn {}  Wave {}", p.level, state.turn, state.wave), 16.0, ui_y + 18.0, 12.0, GOLD);
+    draw_text(&format!("HP  {:.0}/{:.0}", p.stats.current_hp, p.stats.max_hp), 16.0, ui_y + 34.0, 12.0, GREEN);
+    draw_text(&format!("MP  {:.0}/{:.0}", p.stats.current_mana, p.stats.max_mana), 16.0, ui_y + 50.0, 12.0, Color::from_rgba(80, 120, 255, 255));
+    draw_text(&format!("STR {:.0}  AGI {:.0}  INT {:.0}", p.stats.strength, p.stats.agility, p.stats.intelligence), 16.0, ui_y + 66.0, 11.0, YELLOW);
+    draw_text(&format!("Armor {:.1}   Crit {:.0}%", p.stats.armor, p.stats.crit_chance * 100.0), 16.0, ui_y + 82.0, 11.0, LIGHTGRAY);
+    draw_text(&format!("Gold {}   TP {}", p.gold, p.talent_points), 16.0, ui_y + 98.0, 11.0, GOLD);
+    draw_text(&format!("EXP {:.0}/{:.0}", p.exp, p.exp_to_next_level()), 16.0, ui_y + 114.0, 11.0, LIGHTGRAY);
+    draw_text(&format!("Regen HP+{:.1}  MP+{:.1}", p.stats.hp_regen, p.stats.mana_regen), 16.0, ui_y + 130.0, 11.0, DARKGRAY);
 
-    // Ability panel
+    // Ability Panel
     panel(230.0, ui_y, 315.0, ui_h);
     draw_text("ABILITIES", 240.0, ui_y + 18.0, 12.0, GRAY);
     for (i, ab) in state.abilities.iter().enumerate() {
-        let ay  = ui_y + 32.0 + i as f32 * 20.0;
+        let ay = ui_y + 32.0 + i as f32 * 20.0;
         let sel = i == state.cursor;
         if sel {
-            draw_rectangle(233.0, ay - 13.0, 309.0, 18.0,
-                Color::from_rgba(50,50,90,200));
+            draw_rectangle(233.0, ay - 13.0, 309.0, 18.0, Color::from_rgba(50, 50, 90, 200));
         }
-        let cd  = p.cooldowns.get(ab).copied().unwrap_or(0);
-        let col = if sel { WHITE } else { Color::from_rgba(145,145,145,255) };
+        let cd = p.cooldowns.get(ab).copied().unwrap_or(0);
+        let col = if sel { WHITE } else { Color::from_rgba(145, 145, 145, 255) };
         let cd_s = if cd > 0 { format!(" [{}]", cd) } else { String::new() };
-        draw_text(&format!("[{}] {}{}", i+1, ab, cd_s), 242.0, ay, 12.0, col);
+        draw_text(&format!("[{}] {}{}", i + 1, ab, cd_s), 242.0, ay, 12.0, col);
     }
-    draw_text("↑↓ or 1-9 select    ENTER use    Q quit",
-        240.0, H - 12.0, 10.0, DARKGRAY);
+    draw_text("Arrows/1-9 select    ENTER use    Q quit", 240.0, H - 12.0, 10.0, DARKGRAY);
 
-    // Log panel
+    // Log Panel
     panel(552.0, ui_y, W - 560.0, ui_h);
     draw_text("LOG", 562.0, ui_y + 18.0, 12.0, GRAY);
     for (i, line) in state.log.iter().enumerate() {
@@ -666,18 +702,139 @@ async fn main() {
             Screen::Victory => {
                 draw_victory(&state);
                 if is_key_pressed(KeyCode::Enter) {
-                    state.wave   += 1;
-                    state.cursor  = 0;
-                    // Full restore between waves
-                    if let Some(ref mut p) = state.player {
-                        p.stats.current_hp   = p.stats.max_hp;
-                        p.stats.current_mana = p.stats.max_mana;
-                        p.cooldowns.clear();
-                    }
-                    state.start_combat();
-                }
-                if is_key_pressed(KeyCode::Q) { break; }
+                state.cursor = 0;
+                state.screen = Screen::LevelUp; // Bridge to LevelUp screen instead of starting combat
+        }
+            if is_key_pressed(KeyCode::Q) {
+                break;
+    }
             }
+            Screen::LevelUp => {
+                let player = state.player.as_ref().unwrap();
+                let options: Vec<(&'static str, &'static str)> =mechanics::get_talent_list(player);
+                let exit_idx = options.len();
+
+    // Draw background overlay panel
+    draw_rectangle(100.0, 100.0, 600.0, 400.0, Color::from_rgba(20, 20, 35, 240));
+    draw_text("LEVEL UP - SPELL ARCHIVES", 140.0, 150.0, 24.0, GOLD);
+    draw_text(&format!("Available Talent Points (TP): {}", player.talent_points), 140.0, 180.0, 16.0, WHITE);
+    draw_line(140.0, 195.0, 660.0, 195.0, 2.0, MAROON);
+
+    // Render talent choices dynamically
+    let mut y_pos = 240.0;
+    for (i, (name, desc)) in options.iter().enumerate() {
+        let is_selected = state.cursor == i;
+        let txt_color = if is_selected { YELLOW } else { GRAY };
+        let prefix = if is_selected { " > [LEARN] " } else { "   " };
+        
+        draw_text(&format!("{}{}", prefix, name.to_uppercase()), 150.0, y_pos, 18.0, txt_color);
+        draw_text(desc, 300.0, y_pos, 14.0, if is_selected { LIGHTGRAY } else { DARKGRAY });
+        y_pos += 40.0;
+    }
+
+    // Render exit option to move to the shop
+    let is_exit_selected = state.cursor == exit_idx;
+    let exit_color = if is_exit_selected { GREEN } else { GRAY };
+    let exit_prefix = if is_exit_selected { " > " } else { "   " };
+    draw_text(&format!("{}[ PROCEED TO MERCHANT SHOP ]", exit_prefix), 150.0, y_pos + 20.0, 18.0, exit_color);
+
+    // Input Controller for Navigation
+    if is_key_pressed(KeyCode::Up) && state.cursor > 0 {
+        state.cursor -= 1;
+    }
+    if is_key_pressed(KeyCode::Down) && state.cursor < exit_idx {
+        state.cursor += 1;
+    }
+    if is_key_pressed(KeyCode::Enter) {
+        if state.cursor == exit_idx {
+            // Generate customized random shop stock based on Player class and current Wave
+            state.shop = Some(crate::shop::Shop::generate_shop_stock(state.player.as_ref().unwrap(), state.wave));
+            state.cursor = 0;
+            state.screen = Screen::Shop;
+        } else if player.talent_points > 0 {
+            let selected_talent = options[state.cursor].0;
+            let p = state.player.as_mut().unwrap();
+            if p.upgrade_generic_talent(selected_talent) {
+                state.add_log(format!("Successfully upgraded spell: {}", selected_talent));
+            }
+        }
+    }
+}
+
+Screen::Shop => {
+    let player = state.player.as_ref().unwrap();
+    
+    // Draw background overlay panel
+    draw_rectangle(100.0, 100.0, 600.0, 400.0, Color::from_rgba(30, 25, 20, 240));
+    draw_text("WANDERING MERCHANT SHOP", 140.0, 150.0, 24.0, GOLD);
+    draw_text(&format!("Your Balance: {} G", player.gold), 140.0, 180.0, 16.0, YELLOW);
+    draw_line(140.0, 195.0, 660.0, 195.0, 2.0, ORANGE);
+
+    let mut shop_items_len = 0;
+    let mut y_pos = 240.0;
+
+    if let Some(ref s) = state.shop {
+        shop_items_len = s.items_for_sale.len();
+        for (i, item) in s.items_for_sale.iter().enumerate() {
+            let is_selected = state.cursor == i;
+            let txt_color = if is_selected { YELLOW } else { WHITE };
+            let prefix = if is_selected { " > [BUY] " } else { "   " };
+            
+            draw_text(&format!("{}{}", prefix, item.name), 150.0, y_pos, 16.0, txt_color);
+            draw_text(&format!("Cost: {} G", item.price), 520.0, y_pos, 16.0, if is_selected { GOLD } else { LIGHTGRAY });
+            y_pos += 40.0;
+        }
+    }
+
+    let is_exit_selected = state.cursor == shop_items_len;
+    let exit_color = if is_exit_selected { RED } else { GRAY };
+    let exit_prefix = if is_exit_selected { " > " } else { "   " };
+    draw_text(&format!("{}[ VENTURE INTO WAVE {} ]", exit_prefix, state.wave + 1), 150.0, y_pos + 20.0, 18.0, exit_color);
+
+    
+    if is_key_pressed(KeyCode::Up) && state.cursor > 0 {
+        state.cursor -= 1;
+    }
+    if is_key_pressed(KeyCode::Down) && state.cursor < shop_items_len {
+        state.cursor += 1;
+    }
+    if is_key_pressed(KeyCode::Enter) {
+        if state.cursor == shop_items_len {
+            
+            state.wave += 1;
+            state.cursor = 0;
+            if let Some(ref mut p) = state.player {
+                p.stats.current_hp = p.stats.max_hp;
+                p.stats.current_mana = p.stats.max_mana;
+                p.cooldowns.clear(); 
+            }
+            state.start_combat();
+    } else if state.shop.is_some() {
+    // Temporarily take the shop out of state to bypass borrow checker restrictions
+        let mut current_shop = state.shop.take().unwrap();
+    
+        if let Some(ref mut p) = state.player {
+            let before_len = current_shop.items_for_sale.len();
+        
+        
+            current_shop.buy_item(p, state.cursor);
+        
+        
+        if current_shop.items_for_sale.len() < before_len {
+            state.add_log("Item purchased and applied to stats!");
+            if state.cursor >= current_shop.items_for_sale.len() && state.cursor > 0 {
+                state.cursor -= 1;
+            }
+        } else {
+            state.add_log("Transaction failed: Insufficient gold!");
+        }
+    }
+    
+    
+    state.shop = Some(current_shop);
+        }
+    }
+}
 
             Screen::GameOver => {
                 draw_game_over(&state);
